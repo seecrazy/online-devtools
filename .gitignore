@@ -1,0 +1,11 @@
+# OS files
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Local server logs
+*.log
+
+# Generated deployment artifact
+site/

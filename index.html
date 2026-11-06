@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Online DevTools 开发者工具箱</title>
+  <meta name="description" content="JSON、Base64、时间戳、正则表达式和 Cron 表达式在线工具，全部在浏览器本地处理。">
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">{"}"</span>
+      <div>
+        <h1>Online DevTools</h1>
+        <p>开发者常用工具箱 · 数据本地处理</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="share-button" class="button secondary" type="button" aria-describedby="share-status">分享当前状态</button>
+      <button id="theme-button" class="button secondary" type="button">跟随系统</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <nav class="tool-nav" aria-label="工具导航">
+      <a class="tool-link is-active" href="#tool-json" data-tool-id="json">JSON</a>
+      <a class="tool-link" href="#tool-base64" data-tool-id="base64">Base64</a>
+      <a class="tool-link" href="#tool-timestamp" data-tool-id="timestamp">时间戳</a>
+      <a class="tool-link" href="#tool-regex" data-tool-id="regex">正则</a>
+      <a class="tool-link" href="#tool-cron" data-tool-id="cron">Cron</a>
+    </nav>
+
+    <main id="main" class="workspace">
+      <section id="tool-json" class="tool-panel is-active" aria-labelledby="json-title">
+        <div class="tool-heading">
+          <h2 id="json-title">JSON 解析与格式化</h2>
+          <p>校验、格式化或压缩 JSON，并定位语法错误。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="json-input">JSON 输入</label>
+            <textarea id="json-input" class="code-input" spellcheck="false" aria-describedby="json-status"></textarea>
+            <div class="controls">
+              <label for="json-mode">处理方式</label>
+              <select id="json-mode">
+                <option value="format">格式化</option>
+                <option value="minify">压缩</option>
+              </select>
+              <label for="json-indent">缩进</label>
+              <select id="json-indent">
+                <option value="2">2 空格</option>
+                <option value="4">4 空格</option>
+                <option value="tab">Tab</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#json-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#json-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="json">清空</button>
+              <button class="button secondary" type="button" data-sample="json">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="json-output" class="output" tabindex="0"></pre>
+            <p id="json-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-base64" class="tool-panel" aria-labelledby="base64-title">
+        <div class="tool-heading">
+          <h2 id="base64-title">Base64 编解码</h2>
+          <p>UTF-8 安全编解码，支持中文、Emoji 和 URL-safe Base64。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="base64-input">输入</label>
+            <textarea id="base64-input" class="code-input" spellcheck="false" aria-describedby="base64-status"></textarea>
+            <div class="controls">
+              <label for="base64-mode">方向</label>
+              <select id="base64-mode">
+                <option value="encode">文本转 Base64</option>
+                <option value="decode">Base64 转文本</option>
+              </select>
+              <label><input id="base64-url-safe" type="checkbox"> URL-safe</label>
+              <button class="button secondary" type="button" data-copy="#base64-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#base64-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="base64">清空</button>
+              <button class="button secondary" type="button" data-sample="base64">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="base64-output" class="output" tabindex="0"></pre>
+            <p id="base64-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-timestamp" class="tool-panel" aria-labelledby="timestamp-title">
+        <div class="tool-heading">
+          <h2 id="timestamp-title">时间戳与时间转换</h2>
+          <p>转换 Unix 时间戳、ISO 时间和常见日期时间，显示明确时区。</p>
+        </div>
+        <div class="current-grid">
+          <article>
+            <h3>当前秒级时间戳</h3>
+            <output id="current-seconds"></output>
+            <button class="button secondary" type="button" data-copy="#current-seconds">复制</button>
+          </article>
+          <article>
+            <h3>当前毫秒级时间戳</h3>
+            <output id="current-milliseconds"></output>
+            <button class="button secondary" type="button" data-copy="#current-milliseconds">复制</button>
+          </article>
+          <article>
+            <h3>当前 ISO 8601</h3>
+            <output id="current-iso"></output>
+            <button class="button secondary" type="button" data-copy="#current-iso">复制</button>
+          </article>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="timestamp-input">时间戳或日期时间</label>
+            <input id="timestamp-input" class="line-input" spellcheck="false" placeholder="1772918400 / 1772918400000 / 2026-03-07 08:00:00">
+            <div class="controls">
+              <label for="timestamp-unit">数字单位</label>
+              <select id="timestamp-unit">
+                <option value="auto">自动识别</option>
+                <option value="seconds">秒</option>
+                <option value="milliseconds">毫秒</option>
+              </select>
+              <label for="timestamp-timezone">时区</label>
+              <select id="timestamp-timezone"></select>
+              <button class="button secondary" type="button" data-clear="timestamp">清空</button>
+              <button class="button secondary" type="button" data-sample="timestamp">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>转换结果</h3>
+            <dl id="timestamp-output" class="result-list"></dl>
+            <p id="timestamp-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-regex" class="tool-panel" aria-labelledby="regex-title">
+        <div class="tool-heading">
+          <h2 id="regex-title">正则表达式测试</h2>
+          <p>使用浏览器 JavaScript RegExp 语义，显示匹配、分组和替换预览。</p>
+        </div>
+        <div class="tool-layout regex-layout">
+          <div class="panel">
+            <label class="field-label" for="regex-pattern">正则表达式</label>
+            <input id="regex-pattern" class="line-input code-input" spellcheck="false" placeholder="\\b[\\w.-]+@[\\w.-]+\\.[a-z]{2,}\\b">
+            <label class="field-label" for="regex-flags">Flags</label>
+            <input id="regex-flags" class="line-input" value="gi" spellcheck="false">
+            <label class="field-label" for="regex-text">测试文本</label>
+            <textarea id="regex-text" class="code-input" spellcheck="false"></textarea>
+            <label class="field-label" for="regex-replace">替换表达式（可选）</label>
+            <input id="regex-replace" class="line-input" spellcheck="false" placeholder="$1@example.com">
+            <div class="controls">
+              <button class="button secondary" type="button" data-copy="#regex-pattern">复制表达式</button>
+              <button class="button secondary" type="button" data-clear="regex">清空</button>
+              <button class="button secondary" type="button" data-sample="regex">示例</button>
+              <button id="regex-cancel" class="button secondary" type="button">取消计算</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>匹配结果</h3>
+            <div id="regex-highlight" class="regex-highlight" tabindex="0"></div>
+            <div id="regex-matches" class="match-list"></div>
+            <p id="regex-status" class="status" role="status" aria-live="polite"></p>
+            <p class="engine-note">注意：不同语言的正则方言存在差异；环视、命名分组和 Unicode 属性以当前浏览器支持为准。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-cron" class="tool-panel" aria-labelledby="cron-title">
+        <div class="tool-heading">
+          <h2 id="cron-title">Cron 表达式解析</h2>
+          <p>校验标准五字段表达式，生成解释和未来执行时间预览。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="cron-expression">标准五字段表达式</label>
+            <input id="cron-expression" class="line-input code-input" spellcheck="false" placeholder="0 9 * * MON-FRI">
+            <div class="controls">
+              <label for="cron-timezone">时区</label>
+              <select id="cron-timezone"></select>
+              <label for="cron-count">预览数量</label>
+              <select id="cron-count">
+                <option value="5">5 次</option>
+                <option value="10">10 次</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#cron-expression">复制表达式</button>
+              <button class="button secondary" type="button" data-clear="cron">清空</button>
+              <button class="button secondary" type="button" data-sample="cron">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>解析结果</h3>
+            <div id="cron-description" class="cron-description"></div>
+            <ol id="cron-runs" class="cron-runs"></ol>
+            <p id="cron-status" class="status" role="status" aria-live="polite"></p>
+            <p class="engine-note">v1 支持标准五字段 Cron 的 <code>*</code>、数字、<code>,</code>、<code>-</code>、<code>/</code> 和常见英文缩写；暂不支持 Quartz 六字段/七字段表达式。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="app-footer">
+    <p>所有输入默认仅在你的浏览器中处理，不会上传服务器。</p>
+    <p id="share-status" role="status" aria-live="polite"></p>
+  </footer>
+
+  <script type="module" src="./assets/app.js"></script>
+</body>
+</html>
