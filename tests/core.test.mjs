@@ -9,6 +9,11 @@ import {
   encodeState,
   getCronRuns,
   getToolExamples,
+  processHash,
+  processUrl,
+  processUuid,
+  searchHttpStatusCodes,
+  searchMimeTypes,
   parseCron,
   processBase64,
   processCron,
@@ -177,4 +182,54 @@ test("built-in cron examples are valid", () => {
     assert.equal(example.state.toolId, "cron");
     assert.doesNotThrow(() => parseCron(example.state.input));
   }
+});
+
+test("URL tool encodes, decodes, parses and builds query strings", () => {
+  const text = "开发者 工具";
+  const encoded = processUrl(text, { mode: "encode" });
+  assert.equal(encoded.status, "success");
+  assert.equal(processUrl(encoded.output, { mode: "decode" }).output, text);
+
+  const parsed = processUrl("https://example.com/search?a=1&b=2&b=3#top", { mode: "parse" });
+  assert.equal(parsed.status, "success");
+  assert.deepEqual(JSON.parse(parsed.output).params, { a: ["1"], b: ["2", "3"] });
+
+  const built = processUrl('[["q","开发者"],["page","2"]]', { mode: "build" });
+  assert.equal(built.output, "q=%E5%BC%80%E5%8F%91%E8%80%85&page=2");
+});
+
+test("UUID tool validates and formats values", () => {
+  const valid = processUuid("123e4567-e89b-12d3-a456-426614174000", {
+    uppercase: true,
+    hyphens: false,
+  });
+  assert.equal(valid.status, "success");
+  assert.equal(valid.output, "123E4567E89B12D3A456426614174000");
+
+  const invalid = processUuid("not-a-uuid", {});
+  assert.equal(invalid.status, "error");
+});
+
+test("hash tool computes local SHA-256 digests", async () => {
+  const result = await processHash("abc", { algorithm: "SHA-256" });
+  assert.equal(result.status, "success");
+  assert.equal(result.output, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+});
+
+test("HTTP and MIME lookup tools filter local data", () => {
+  const http = searchHttpStatusCodes("timeout");
+  assert.ok(http.results.every((item) => `${item.code} ${item.name} ${item.description} ${item.semantics}`.toLowerCase().includes("timeout")));
+
+  const mime = searchMimeTypes("png");
+  assert.ok(mime.results.some((item) => item.type === "image/png"));
+});
+
+test("v1.1 tool states survive URL hash encoding", () => {
+  const state = {
+    version: 1,
+    toolId: "url",
+    input: "https://example.com/?q=开发者",
+    params: { mode: "parse" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(state)), state);
 });

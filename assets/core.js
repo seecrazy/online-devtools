@@ -1,4 +1,15 @@
-export const TOOL_IDS = ["json", "base64", "timestamp", "regex", "cron"];
+export const TOOL_IDS = [
+  "json",
+  "base64",
+  "url",
+  "timestamp",
+  "regex",
+  "cron",
+  "uuid",
+  "hash",
+  "http",
+  "mime",
+];
 export const MAX_INPUT_LENGTH = 1024 * 1024;
 export const MAX_URL_STATE_LENGTH = 64 * 1024;
 export const TIME_ZONES = [
@@ -759,6 +770,197 @@ export function getToolExamples(toolId) {
   return structuredClone(TOOL_EXAMPLES[toolId] || []);
 }
 
+export function processUrl(input, params = {}) {
+  const mode = ["decode", "parse", "build"].includes(params.mode) ? params.mode : "encode";
+  if (!input.trim()) return idle();
+
+  try {
+    if (mode === "encode") {
+      return success(encodeURIComponent(input), { mode });
+    }
+    if (mode === "decode") {
+      return success(decodeURIComponent(input), { mode });
+    }
+    if (mode === "build") {
+      const parsed = JSON.parse(input);
+      if (!Array.isArray(parsed) || parsed.some(([key]) => typeof key !== "string")) {
+        throw new Error("Query 参数 JSON 必须是 [key, value] 数组。");
+      }
+      const query = new URLSearchParams();
+      for (const [key, value] of parsed) query.append(key, String(value ?? ""));
+      return success(query.toString(), { mode });
+    }
+
+    const url = new URL(input);
+    const paramsObject = {};
+    for (const [key, value] of url.searchParams.entries()) {
+      if (paramsObject[key]) paramsObject[key].push(value);
+      else paramsObject[key] = [value];
+    }
+    return success(JSON.stringify({
+      href: url.href,
+      protocol: url.protocol,
+      username: url.username,
+      password: url.password,
+      host: url.host,
+      hostname: url.hostname,
+      port: url.port,
+      pathname: url.pathname,
+      search: url.search,
+      hash: url.hash,
+      params: paramsObject,
+    }, null, 2), { mode: "parse" });
+  } catch (error) {
+    return failure(error.message, { tool: "url" });
+  }
+}
+
+function randomUuidValues() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID().replace(/-/g, "");
+  }
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  const bytes = new Uint8Array(16);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Math.floor(Math.random() * 256);
+  }
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function formatUuid(value, { uppercase = false, hyphens = true } = {}) {
+  const clean = value.replaceAll("-", "");
+  let output = hyphens ?
+    `${clean.slice(0, 8)}-${clean.slice(8, 12)}-${clean.slice(12, 16)}-${clean.slice(16, 20)}-${clean.slice(20)}` :
+    clean;
+  return uppercase ? output.toUpperCase() : output.toLowerCase();
+}
+
+export function processUuid(input, params = {}) {
+  const uppercase = params.uppercase === true || params.uppercase === "true";
+  const hyphens = params.hyphens !== false && params.hyphens !== "false";
+  const count = Math.max(1, Math.min(100, Number(params.count) || 5));
+  const validator = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (input.trim()) {
+    const candidates = input.trim().split(/\s*,\s*|\s+/);
+    const invalid = candidates.filter((candidate) => !validator.test(candidate));
+    if (invalid.length) {
+      return failure(`无效 UUID：${invalid[0]}`, { tool: "uuid" });
+    }
+    return success(candidates.map((candidate) => formatUuid(candidate, { uppercase, hyphens })).join("\n"), {
+      valid: candidates.length,
+    });
+  }
+
+  const values = Array.from({ length: count }, () => formatUuid(randomUuidValues(), { uppercase, hyphens }));
+  return success(values.join("\n"), { generated: count });
+}
+
+export async function processHash(input, params = {}) {
+  const algorithm = ["SHA-1", "SHA-256", "SHA-384", "SHA-512"].includes(params.algorithm) ?
+    params.algorithm :
+    "SHA-256";
+  const uppercase = params.uppercase === true || params.uppercase === "true";
+  if (!input) return idle();
+  try {
+    const bytes = new TextEncoder().encode(input);
+    const digest = await globalThis.crypto.subtle.digest(algorithm, bytes);
+    const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    return success(uppercase ? hex.toUpperCase() : hex, { algorithm });
+  } catch (error) {
+    return failure(error.message, { tool: "hash" });
+  }
+}
+
+export const HTTP_STATUS_CODES = [
+  { code: 100, name: "Continue", description: "客户端应继续请求。", semantics: "协议信息" },
+  { code: 101, name: "Switching Protocols", description: "服务器同意切换协议。", semantics: "协议切换" },
+  { code: 200, name: "OK", description: "请求成功。", semantics: "可缓存" },
+  { code: 201, name: "Created", description: "资源创建成功。", semantics: "成功创建" },
+  { code: 202, name: "Accepted", description: "请求已接受，等待处理。", semantics: "异步处理" },
+  { code: 204, name: "No Content", description: "成功但没有响应体。", semantics: "无内容" },
+  { code: 301, name: "Moved Permanently", description: "资源永久移动。", semantics: "永久重定向" },
+  { code: 302, name: "Found", description: "资源临时移动。", semantics: "临时重定向" },
+  { code: 304, name: "Not Modified", description: "缓存仍有效。", semantics: "缓存复用" },
+  { code: 307, name: "Temporary Redirect", description: "临时重定向，保留方法。", semantics: "临时重定向" },
+  { code: 308, name: "Permanent Redirect", description: "永久重定向，保留方法。", semantics: "永久重定向" },
+  { code: 400, name: "Bad Request", description: "请求语法或参数错误。", semantics: "客户端错误" },
+  { code: 401, name: "Unauthorized", description: "未认证。", semantics: "需要认证" },
+  { code: 403, name: "Forbidden", description: "已认证但无权限。", semantics: "权限不足" },
+  { code: 404, name: "Not Found", description: "资源不存在。", semantics: "客户端错误" },
+  { code: 405, name: "Method Not Allowed", description: "方法不允许。", semantics: "方法错误" },
+  { code: 409, name: "Conflict", description: "请求与当前状态冲突。", semantics: "状态冲突" },
+  { code: 410, name: "Gone", description: "资源已永久消失。", semantics: "永久失效" },
+  { code: 415, name: "Unsupported Media Type", description: "请求媒体类型不支持。", semantics: "格式错误" },
+  { code: 422, name: "Unprocessable Entity", description: "请求格式正确但语义错误。", semantics: "校验失败" },
+  { code: 429, name: "Too Many Requests", description: "请求过多。", semantics: "限流，可重试" },
+  { code: 500, name: "Internal Server Error", description: "服务器内部错误。", semantics: "服务端错误，可重试" },
+  { code: 501, name: "Not Implemented", description: "服务器不支持该功能。", semantics: "服务端错误" },
+  { code: 502, name: "Bad Gateway", description: "上游网关或代理收到无效响应。", semantics: "上游错误，可重试" },
+  { code: 503, name: "Service Unavailable", description: "服务暂不可用。", semantics: "过载或维护，可重试" },
+  { code: 504, name: "Gateway Timeout", description: "上游网关超时。", semantics: "上游超时，可重试" },
+];
+
+export function searchHttpStatusCodes(query = "") {
+  const normalized = query.trim().toLowerCase();
+  const results = normalized ?
+    HTTP_STATUS_CODES.filter((item) =>
+      `${item.code} ${item.name} ${item.description} ${item.semantics}`.toLowerCase().includes(normalized)
+    ) :
+    HTTP_STATUS_CODES;
+  return { results, total: HTTP_STATUS_CODES.length };
+}
+
+export const MIME_TYPES = [
+  { extension: ".aac", type: "audio/aac", category: "音频" },
+  { extension: ".avi", type: "video/x-msvideo", category: "视频" },
+  { extension: ".bin", type: "application/octet-stream", category: "二进制" },
+  { extension: ".css", type: "text/css", category: "前端" },
+  { extension: ".csv", type: "text/csv", category: "数据" },
+  { extension: ".doc", type: "application/msword", category: "文档" },
+  { extension: ".docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", category: "文档" },
+  { extension: ".gif", type: "image/gif", category: "图片" },
+  { extension: ".gz", type: "application/gzip", category: "压缩包" },
+  { extension: ".htm", type: "text/html", category: "前端" },
+  { extension: ".html", type: "text/html", category: "前端" },
+  { extension: ".ico", type: "image/vnd.microsoft.icon", category: "图片" },
+  { extension: ".jpeg", type: "image/jpeg", category: "图片" },
+  { extension: ".jpg", type: "image/jpeg", category: "图片" },
+  { extension: ".js", type: "text/javascript", category: "前端" },
+  { extension: ".json", type: "application/json", category: "数据" },
+  { extension: ".md", type: "text/markdown", category: "文档" },
+  { extension: ".mp3", type: "audio/mpeg", category: "音频" },
+  { extension: ".mp4", type: "video/mp4", category: "视频" },
+  { extension: ".pdf", type: "application/pdf", category: "文档" },
+  { extension: ".png", type: "image/png", category: "图片" },
+  { extension: ".ppt", type: "application/vnd.ms-powerpoint", category: "文档" },
+  { extension: ".pptx", type: "application/vnd.openxmlformats-officedocument.presentationml.presentation", category: "文档" },
+  { extension: ".svg", type: "image/svg+xml", category: "图片" },
+  { extension: ".tar", type: "application/x-tar", category: "压缩包" },
+  { extension: ".ts", type: "video/mp2t", category: "视频" },
+  { extension: ".txt", type: "text/plain", category: "文本" },
+  { extension: ".wasm", type: "application/wasm", category: "二进制" },
+  { extension: ".webm", type: "video/webm", category: "视频" },
+  { extension: ".webp", type: "image/webp", category: "图片" },
+  { extension: ".xls", type: "application/vnd.ms-excel", category: "文档" },
+  { extension: ".xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", category: "文档" },
+  { extension: ".xml", type: "application/xml", category: "数据" },
+  { extension: ".zip", type: "application/zip", category: "压缩包" },
+];
+
+export function searchMimeTypes(query = "") {
+  const normalized = query.trim().toLowerCase();
+  const results = normalized ?
+    MIME_TYPES.filter((item) =>
+      `${item.extension} ${item.type} ${item.category}`.toLowerCase().includes(normalized)
+    ) :
+    MIME_TYPES;
+  return { results, total: MIME_TYPES.length };
+}
+
 export function createDefaultState(toolId = "json") {
   if (!TOOL_IDS.includes(toolId)) toolId = "json";
   const states = {
@@ -767,6 +969,11 @@ export function createDefaultState(toolId = "json") {
     timestamp: { toolId, input: "", params: { timestampUnit: "auto", timezone: "system" } },
     regex: { toolId, input: "", params: { flags: "gi", testText: "", replaceText: "" } },
     cron: { toolId, input: "", params: { timezone: "system", previewCount: 5 } },
+    url: { toolId, input: "", params: { mode: "encode" } },
+    uuid: { toolId, input: "", params: { count: 5, uppercase: false, hyphens: true } },
+    hash: { toolId, input: "", params: { algorithm: "SHA-256", uppercase: false } },
+    http: { toolId, input: "", params: {} },
+    mime: { toolId, input: "", params: {} },
   };
   return structuredClone(states[toolId]);
 }
@@ -797,6 +1004,25 @@ function normalizeParams(toolId, params) {
       testText: typeof value.testText === "string" ? value.testText : "",
       replaceText: typeof value.replaceText === "string" ? value.replaceText : "",
     };
+  }
+  if (toolId === "url") {
+    return { mode: ["decode", "parse", "build"].includes(value.mode) ? value.mode : "encode" };
+  }
+  if (toolId === "uuid") {
+    return {
+      count: Math.max(1, Math.min(100, Number(value.count) || 5)),
+      uppercase: value.uppercase === true || value.uppercase === "true",
+      hyphens: value.hyphens !== false && value.hyphens !== "false",
+    };
+  }
+  if (toolId === "hash") {
+    return {
+      algorithm: ["SHA-1", "SHA-256", "SHA-384", "SHA-512"].includes(value.algorithm) ? value.algorithm : "SHA-256",
+      uppercase: value.uppercase === true || value.uppercase === "true",
+    };
+  }
+  if (toolId === "http" || toolId === "mime") {
+    return {};
   }
   return {
     timezone: TIME_ZONES.includes(value.timezone) ? value.timezone : "system",

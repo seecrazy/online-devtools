@@ -27,11 +27,19 @@
 
   <div class="app-shell">
     <nav class="tool-nav" aria-label="工具导航">
+      <p class="nav-group">常用转换</p>
       <a class="tool-link is-active" href="#tool-json" data-tool-id="json">JSON</a>
       <a class="tool-link" href="#tool-base64" data-tool-id="base64">Base64</a>
+      <a class="tool-link" href="#tool-url" data-tool-id="url">URL</a>
       <a class="tool-link" href="#tool-timestamp" data-tool-id="timestamp">时间戳</a>
+      <a class="tool-link" href="#tool-uuid" data-tool-id="uuid">UUID</a>
+      <a class="tool-link" href="#tool-hash" data-tool-id="hash">Hash</a>
+      <p class="nav-group">校验调试</p>
       <a class="tool-link" href="#tool-regex" data-tool-id="regex">正则</a>
       <a class="tool-link" href="#tool-cron" data-tool-id="cron">Cron</a>
+      <p class="nav-group">速查手册</p>
+      <a class="tool-link" href="#tool-http" data-tool-id="http">HTTP 状态码</a>
+      <a class="tool-link" href="#tool-mime" data-tool-id="mime">MIME Type</a>
     </nav>
 
     <main id="main" class="workspace">
@@ -285,6 +293,126 @@
             <p id="cron-status" class="status" role="status" aria-live="polite"></p>
             <p class="engine-note">v1 支持标准五字段 Cron 的 <code>*</code>、数字、<code>,</code>、<code>-</code>、<code>/</code> 和常见英文缩写；暂不支持 Quartz 六字段/七字段表达式。</p>
           </div>
+        </div>
+      </section>
+
+      <section id="tool-url" class="tool-panel" aria-labelledby="url-title">
+        <div class="tool-heading">
+          <h2 id="url-title">URL 编解码与解析</h2>
+          <p>支持 URL 编码、解码、结构解析和 Query 参数组装。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="url-input">输入</label>
+            <textarea id="url-input" class="code-input" spellcheck="false" aria-describedby="url-status"></textarea>
+            <div class="controls">
+              <label for="url-mode">模式</label>
+              <select id="url-mode">
+                <option value="encode">URL 编码</option>
+                <option value="decode">URL 解码</option>
+                <option value="parse">URL 解析</option>
+                <option value="build">Query 组装</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#url-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#url-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="url">清空</button>
+              <button class="button secondary" type="button" data-sample="url">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="url-output" class="output" tabindex="0"></pre>
+            <p id="url-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-uuid" class="tool-panel" aria-labelledby="uuid-title">
+        <div class="tool-heading">
+          <h2 id="uuid-title">UUID 生成器</h2>
+          <p>批量生成 UUID v4，支持格式转换与 UUID 校验。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="uuid-input">UUID 列表（留空则生成）</label>
+            <textarea id="uuid-input" class="code-input" spellcheck="false" aria-describedby="uuid-status"></textarea>
+            <div class="controls">
+              <label for="uuid-count">生成数量</label>
+              <select id="uuid-count">
+                <option value="1">1 个</option>
+                <option value="5" selected>5 个</option>
+                <option value="10">10 个</option>
+                <option value="50">50 个</option>
+              </select>
+              <label><input id="uuid-uppercase" type="checkbox"> 大写</label>
+              <label><input id="uuid-hyphens" type="checkbox" checked> 保留连字符</label>
+              <button id="uuid-generate" class="button secondary" type="button">重新生成</button>
+              <button class="button secondary" type="button" data-copy="#uuid-output">复制结果</button>
+              <button class="button secondary" type="button" data-clear="uuid">清空</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="uuid-output" class="output" tabindex="0"></pre>
+            <p id="uuid-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-hash" class="tool-panel" aria-labelledby="hash-title">
+        <div class="tool-heading">
+          <h2 id="hash-title">Hash 工具</h2>
+          <p>使用浏览器 Web Crypto 在本地计算 SHA 系列摘要。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="hash-input">输入文本</label>
+            <textarea id="hash-input" class="code-input" spellcheck="false" aria-describedby="hash-status"></textarea>
+            <div class="controls">
+              <label for="hash-algorithm">算法</label>
+              <select id="hash-algorithm">
+                <option value="SHA-1">SHA-1</option>
+                <option value="SHA-256" selected>SHA-256</option>
+                <option value="SHA-384">SHA-384</option>
+                <option value="SHA-512">SHA-512</option>
+              </select>
+              <label><input id="hash-uppercase" type="checkbox"> 大写输出</label>
+              <button class="button secondary" type="button" data-copy="#hash-output">复制摘要</button>
+              <button class="button secondary" type="button" data-clear="hash">清空</button>
+              <button class="button secondary" type="button" data-sample="hash">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>摘要</h3>
+            <pre id="hash-output" class="output" tabindex="0"></pre>
+            <p id="hash-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-http" class="tool-panel" aria-labelledby="http-title">
+        <div class="tool-heading">
+          <h2 id="http-title">HTTP 状态码速查</h2>
+          <p>搜索常见 HTTP 状态码、含义和重试语义。</p>
+        </div>
+        <div class="panel lookup-panel">
+          <label class="field-label" for="http-input">搜索状态码或关键词</label>
+          <input id="http-input" class="line-input" placeholder="404 / timeout / redirect" aria-describedby="http-status">
+          <p id="http-status" class="status" role="status" aria-live="polite"></p>
+          <div id="http-results" class="lookup-results"></div>
+        </div>
+      </section>
+
+      <section id="tool-mime" class="tool-panel" aria-labelledby="mime-title">
+        <div class="tool-heading">
+          <h2 id="mime-title">MIME Type 速查</h2>
+          <p>搜索常见文件扩展名、MIME Type 和分类。</p>
+        </div>
+        <div class="panel lookup-panel">
+          <label class="field-label" for="mime-input">搜索扩展名或 MIME Type</label>
+          <input id="mime-input" class="line-input" placeholder="png / json / application/pdf" aria-describedby="mime-status">
+          <p id="mime-status" class="status" role="status" aria-live="polite"></p>
+          <div id="mime-results" class="lookup-results"></div>
         </div>
       </section>
     </main>

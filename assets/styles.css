@@ -111,6 +111,20 @@ body {
   gap: 8px;
 }
 
+.nav-group {
+  margin: 12px 0 0;
+  padding-left: 16px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #607083;
+}
+
+.nav-group:first-child {
+  margin-top: 0;
+}
+
 .tool-link {
   display: flex;
   align-items: center;
@@ -466,6 +480,15 @@ select {
   margin-top: 12px;
   font-size: 0.78rem;
   color: #607083;
+}
+
+.lookup-panel {
+  width: 100%;
+}
+
+.lookup-results {
+  max-height: 620px;
+  overflow: auto;
 }
 
 .guide-grid {

@@ -5,9 +5,14 @@ import {
   convertTimestamp,
   createDefaultState,
   currentTimestampInfo,
+  processHash,
   processBase64,
   processCron,
   processJson,
+  processUrl,
+  processUuid,
+  searchHttpStatusCodes,
+  searchMimeTypes,
   stateFromHash,
   stateToHash,
 } from "./core.js";
@@ -60,6 +65,38 @@ const dom = {
     runs: document.querySelector("#cron-runs"),
     status: document.querySelector("#cron-status"),
   },
+  url: {
+    input: document.querySelector("#url-input"),
+    mode: document.querySelector("#url-mode"),
+    output: document.querySelector("#url-output"),
+    status: document.querySelector("#url-status"),
+  },
+  uuid: {
+    input: document.querySelector("#uuid-input"),
+    count: document.querySelector("#uuid-count"),
+    uppercase: document.querySelector("#uuid-uppercase"),
+    hyphens: document.querySelector("#uuid-hyphens"),
+    generate: document.querySelector("#uuid-generate"),
+    output: document.querySelector("#uuid-output"),
+    status: document.querySelector("#uuid-status"),
+  },
+  hash: {
+    input: document.querySelector("#hash-input"),
+    algorithm: document.querySelector("#hash-algorithm"),
+    uppercase: document.querySelector("#hash-uppercase"),
+    output: document.querySelector("#hash-output"),
+    status: document.querySelector("#hash-status"),
+  },
+  http: {
+    input: document.querySelector("#http-input"),
+    results: document.querySelector("#http-results"),
+    status: document.querySelector("#http-status"),
+  },
+  mime: {
+    input: document.querySelector("#mime-input"),
+    results: document.querySelector("#mime-results"),
+    status: document.querySelector("#mime-status"),
+  },
 };
 
 const states = Object.fromEntries(TOOL_IDS.map((toolId) => [toolId, createDefaultState(toolId)]));
@@ -88,6 +125,14 @@ const samples = {
   cron: {
     input: "0 9 * * MON-FRI",
     params: { timezone: "Asia/Shanghai", previewCount: 5 },
+  },
+  url: {
+    input: "https://example.com/search?q=开发者工具箱&page=2#hash",
+    params: { mode: "parse" },
+  },
+  hash: {
+    input: "Online DevTools",
+    params: { algorithm: "SHA-256", uppercase: false },
   },
 };
 
@@ -212,6 +257,22 @@ function readStateFromDom(toolId = activeTool) {
     state.input = dom.cron.expression.value;
     state.params.timezone = dom.cron.timezone.value;
     state.params.previewCount = Number(dom.cron.count.value);
+  } else if (toolId === "url") {
+    state.input = dom.url.input.value;
+    state.params.mode = dom.url.mode.value;
+  } else if (toolId === "uuid") {
+    state.input = dom.uuid.input.value;
+    state.params.count = Number(dom.uuid.count.value);
+    state.params.uppercase = dom.uuid.uppercase.checked;
+    state.params.hyphens = dom.uuid.hyphens.checked;
+  } else if (toolId === "hash") {
+    state.input = dom.hash.input.value;
+    state.params.algorithm = dom.hash.algorithm.value;
+    state.params.uppercase = dom.hash.uppercase.checked;
+  } else if (toolId === "http") {
+    state.input = dom.http.input.value;
+  } else if (toolId === "mime") {
+    state.input = dom.mime.input.value;
   }
   return state;
 }
@@ -238,6 +299,22 @@ function writeStateToDom(state) {
     dom.cron.expression.value = state.input;
     dom.cron.timezone.value = state.params.timezone;
     dom.cron.count.value = String(state.params.previewCount);
+  } else if (state.toolId === "url") {
+    dom.url.input.value = state.input;
+    dom.url.mode.value = state.params.mode;
+  } else if (state.toolId === "uuid") {
+    dom.uuid.input.value = state.input;
+    dom.uuid.count.value = String(state.params.count);
+    dom.uuid.uppercase.checked = state.params.uppercase;
+    dom.uuid.hyphens.checked = state.params.hyphens;
+  } else if (state.toolId === "hash") {
+    dom.hash.input.value = state.input;
+    dom.hash.algorithm.value = state.params.algorithm;
+    dom.hash.uppercase.checked = state.params.uppercase;
+  } else if (state.toolId === "http") {
+    dom.http.input.value = state.input;
+  } else if (state.toolId === "mime") {
+    dom.mime.input.value = state.input;
   }
 }
 
@@ -345,6 +422,115 @@ function renderCron(result) {
     dom.cron.runs.append(item);
   }
   setStatus(dom.cron.status, `表达式有效，时区 ${result.timeZone}。`, "success");
+}
+
+function renderUrl(result) {
+  if (result.status === "idle") {
+    setOutput(dom.url.output, "");
+    setStatus(dom.url.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.url.output, "");
+    setStatus(dom.url.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.url.output, result.output);
+  setStatus(dom.url.status, "URL 处理成功。", "success");
+}
+
+function renderUuid(result, state) {
+  if (result.status === "error") {
+    setOutput(dom.uuid.output, "");
+    setStatus(dom.uuid.status, result.error.message, "error");
+    return;
+  }
+
+  setOutput(dom.uuid.output, result.output);
+  if (result.generated) {
+    state.input = result.output;
+    dom.uuid.input.value = result.output;
+    writeHash();
+    setStatus(dom.uuid.status, `已生成 ${result.generated} 个 UUID v4。`, "success");
+  } else {
+    setStatus(dom.uuid.status, `${result.valid} 个 UUID 均有效。`, "success");
+  }
+}
+
+function renderHash(result) {
+  if (result.status === "idle") {
+    setOutput(dom.hash.output, "");
+    setStatus(dom.hash.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.hash.output, "");
+    setStatus(dom.hash.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.hash.output, result.output);
+  setStatus(dom.hash.status, `${result.algorithm} 计算成功。`, "success");
+}
+
+function renderLookupRows(container, rows, columns, copyColumn = null) {
+  container.innerHTML = "";
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "guide-note";
+    empty.textContent = "没有匹配结果。";
+    container.append(empty);
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "syntax-table";
+  const header = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const column of columns) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = column.label;
+    headerRow.append(th);
+  }
+  header.append(headerRow);
+  const body = document.createElement("tbody");
+
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const column of columns) {
+      const td = document.createElement("td");
+      if (column.key === copyColumn) {
+        td.append(createButton("复制", { copyText: row[copyColumn] }));
+      } else {
+        td.textContent = row[column.key] ?? "";
+      }
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+  table.append(header, body);
+  container.append(table);
+}
+
+function renderHttpStatuses(query) {
+  const { results, total } = searchHttpStatusCodes(query);
+  renderLookupRows(dom.http.results, results, [
+    { key: "code", label: "状态码" },
+    { key: "name", label: "名称" },
+    { key: "description", label: "含义" },
+    { key: "semantics", label: "语义" },
+  ]);
+  setStatus(dom.http.status, `显示 ${results.length} / ${total} 条记录。`, results.length ? "success" : "error");
+}
+
+function renderMimeTypes(query) {
+  const { results, total } = searchMimeTypes(query);
+  renderLookupRows(dom.mime.results, results, [
+    { key: "extension", label: "扩展名" },
+    { key: "type", label: "MIME Type" },
+    { key: "category", label: "分类" },
+  ], "type");
+  setStatus(dom.mime.status, `显示 ${results.length} / ${total} 条记录。`, results.length ? "success" : "error");
 }
 
 let regexWorker = null;
@@ -471,7 +657,7 @@ function cancelRegexSilently() {
   regexTimeoutId = null;
 }
 
-function processToolNow() {
+async function processToolNow() {
   const state = readStateFromDom();
   if (state.toolId === "json") {
     renderJson(processJson(state.input, state.params));
@@ -483,6 +669,16 @@ function processToolNow() {
     runRegex(state);
   } else if (state.toolId === "cron") {
     renderCron(processCron(state.input, state.params));
+  } else if (state.toolId === "url") {
+    renderUrl(processUrl(state.input, state.params));
+  } else if (state.toolId === "uuid") {
+    renderUuid(processUuid(state.input, state.params), state);
+  } else if (state.toolId === "hash") {
+    renderHash(await processHash(state.input, state.params));
+  } else if (state.toolId === "http") {
+    renderHttpStatuses(state.input);
+  } else if (state.toolId === "mime") {
+    renderMimeTypes(state.input);
   }
 }
 
@@ -609,6 +805,12 @@ function handleDocumentClick(event) {
   }
   if (button === dom.regex.cancel) {
     cancelRegex();
+    return;
+  }
+  if (button === dom.uuid.generate) {
+    states.uuid.input = "";
+    dom.uuid.input.value = "";
+    activateTool("uuid");
   }
 }
 
@@ -620,6 +822,11 @@ function handleDocumentInput(event) {
     timestamp: ["timestamp-input", "timestamp-unit", "timestamp-timezone"],
     regex: ["regex-pattern", "regex-flags", "regex-text", "regex-replace"],
     cron: ["cron-expression", "cron-timezone", "cron-count"],
+    url: ["url-input", "url-mode"],
+    uuid: ["uuid-input", "uuid-count", "uuid-uppercase", "uuid-hyphens"],
+    hash: ["hash-input", "hash-algorithm", "hash-uppercase"],
+    http: ["http-input"],
+    mime: ["mime-input"],
   }).find(([, ids]) => ids.includes(control.id))?.[0];
 
   if (!toolId) return;
