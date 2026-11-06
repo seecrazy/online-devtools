@@ -8,6 +8,7 @@ import {
   describeCron,
   encodeState,
   getCronRuns,
+  getToolExamples,
   parseCron,
   processBase64,
   processCron,
@@ -151,4 +152,29 @@ test("regex state survives URL hash encoding", () => {
   };
   const hash = stateToHash(state);
   assert.deepEqual(stateFromHash(hash), state);
+});
+
+test("built-in regex examples are valid", () => {
+  const examples = getToolExamples("regex");
+  assert.equal(examples.length, 5);
+  for (const example of examples) {
+    assert.equal(example.state.toolId, "regex");
+    assert.doesNotThrow(() => {
+      computeRegex(
+        example.state.input,
+        example.state.params.flags,
+        example.state.params.testText,
+        example.state.params.replaceText,
+      );
+    });
+  }
+});
+
+test("built-in cron examples are valid", () => {
+  const examples = getToolExamples("cron");
+  assert.equal(examples.length, 7);
+  for (const example of examples) {
+    assert.equal(example.state.toolId, "cron");
+    assert.doesNotThrow(() => parseCron(example.state.input));
+  }
 });

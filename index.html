@@ -152,6 +152,46 @@
           <h2 id="regex-title">正则表达式测试</h2>
           <p>使用浏览器 JavaScript RegExp 语义，显示匹配、分组和替换预览。</p>
         </div>
+        <div class="guide-grid">
+          <details class="guide-card" open>
+            <summary>正则基础讲解</summary>
+            <div class="guide-content">
+              <table class="syntax-table">
+                <caption>常用语法</caption>
+                <thead>
+                  <tr><th scope="col">语法</th><th scope="col">含义</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>abc</code></td><td>字面匹配 abc</td></tr>
+                  <tr><td><code>\d</code> / <code>\w</code> / <code>\s</code></td><td>数字 / 字母数字下划线 / 空白字符</td></tr>
+                  <tr><td><code>[a-z]</code></td><td>字符范围</td></tr>
+                  <tr><td><code>*</code> / <code>+</code> / <code>?</code></td><td>0 次及以上 / 1 次及以上 / 0 次或 1 次</td></tr>
+                  <tr><td><code>{2,4}</code></td><td>重复 2 到 4 次</td></tr>
+                  <tr><td><code>^</code> / <code>$</code></td><td>行首 / 行尾；多行模式受 m flag 影响</td></tr>
+                  <tr><td><code>\b</code></td><td>单词边界</td></tr>
+                  <tr><td><code>(...)</code> / <code>(?:...)</code></td><td>捕获分组 / 非捕获分组</td></tr>
+                </tbody>
+              </table>
+              <table class="syntax-table">
+                <caption>常用 flags</caption>
+                <thead>
+                  <tr><th scope="col">Flag</th><th scope="col">含义</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>g</code></td><td>全局匹配，查找全部结果</td></tr>
+                  <tr><td><code>i</code></td><td>忽略大小写</td></tr>
+                  <tr><td><code>m</code></td><td>多行模式，^ 和 $ 按行匹配</td></tr>
+                  <tr><td><code>s</code></td><td>允许 . 匹配换行符</td></tr>
+                  <tr><td><code>u</code></td><td>Unicode 模式</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <section class="guide-card">
+            <h3>常用示例</h3>
+            <ul id="regex-examples" class="example-list"></ul>
+          </section>
+        </div>
         <div class="tool-layout regex-layout">
           <div class="panel">
             <label class="field-label" for="regex-pattern">正则表达式</label>
@@ -183,6 +223,43 @@
         <div class="tool-heading">
           <h2 id="cron-title">Cron 表达式解析</h2>
           <p>校验标准五字段表达式，生成解释和未来执行时间预览。</p>
+        </div>
+        <div class="guide-grid">
+          <details class="guide-card" open>
+            <summary>Cron 语法讲解</summary>
+            <div class="guide-content">
+              <table class="syntax-table">
+                <caption>五字段顺序</caption>
+                <thead>
+                  <tr><th scope="col">顺序</th><th scope="col">字段</th><th scope="col">范围</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>1</td><td>minute</td><td>0-59</td></tr>
+                  <tr><td>2</td><td>hour</td><td>0-23</td></tr>
+                  <tr><td>3</td><td>day of month</td><td>1-31</td></tr>
+                  <tr><td>4</td><td>month</td><td>1-12</td></tr>
+                  <tr><td>5</td><td>day of week</td><td>0-7，0 和 7 都表示星期日</td></tr>
+                </tbody>
+              </table>
+              <table class="syntax-table">
+                <caption>常用符号</caption>
+                <thead>
+                  <tr><th scope="col">符号</th><th scope="col">含义</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>*</code></td><td>任意值</td></tr>
+                  <tr><td><code>,</code></td><td>列表，例如 <code>1,15</code></td></tr>
+                  <tr><td><code>-</code></td><td>范围，例如 <code>MON-FRI</code></td></tr>
+                  <tr><td><code>/</code></td><td>步长，例如 <code>*/5</code></td></tr>
+                </tbody>
+              </table>
+              <p class="guide-note">标准 Cron 中，当 day of month 和 day of week 都被限制时，两者按“或”而不是“且”匹配。</p>
+            </div>
+          </details>
+          <section class="guide-card">
+            <h3>常用示例</h3>
+            <ul id="cron-examples" class="example-list"></ul>
+          </section>
         </div>
         <div class="tool-layout">
           <div class="panel">

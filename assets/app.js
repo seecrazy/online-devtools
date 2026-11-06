@@ -1,6 +1,7 @@
 import {
   TIME_ZONES,
   TOOL_IDS,
+  getToolExamples,
   convertTimestamp,
   createDefaultState,
   currentTimestampInfo,
@@ -90,6 +91,11 @@ const samples = {
   },
 };
 
+const exampleLists = {
+  regex: document.querySelector("#regex-examples"),
+  cron: document.querySelector("#cron-examples"),
+};
+
 function createButton(text, { copyText, secondary = true } = {}) {
   const button = document.createElement("button");
   button.className = `button${secondary ? " secondary" : ""}`;
@@ -102,6 +108,27 @@ function createButton(text, { copyText, secondary = true } = {}) {
 function setStatus(element, message, kind = "neutral") {
   element.textContent = message;
   element.className = `status${kind === "error" ? " is-error" : kind === "success" ? " is-success" : ""}`;
+}
+
+function renderExampleList(toolId) {
+  const container = exampleLists[toolId];
+  if (!container) return;
+  container.innerHTML = "";
+  for (const example of getToolExamples(toolId)) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    const description = document.createElement("span");
+    button.className = "example-button";
+    button.type = "button";
+    button.textContent = example.title;
+    button.dataset.exampleTool = toolId;
+    button.dataset.exampleId = example.id;
+    button.setAttribute("aria-describedby", `${toolId}-example-${example.id}`);
+    description.id = `${toolId}-example-${example.id}`;
+    description.textContent = example.description;
+    item.append(button, description);
+    container.append(item);
+  }
 }
 
 function storageGet(key) {
@@ -542,6 +569,18 @@ function handleDocumentClick(event) {
   const button = event.target.closest("button");
   if (!button) return;
 
+  if (button.dataset.exampleTool) {
+    const toolId = button.dataset.exampleTool;
+    const example = getToolExamples(toolId).find((item) => item.id === button.dataset.exampleId);
+    if (example) {
+      states[toolId] = structuredClone(example.state);
+      writeStateToDom(states[toolId]);
+      activateTool(toolId);
+      processToolNow();
+    }
+    return;
+  }
+
   if (button.dataset.copyText !== undefined) {
     copyToClipboard(button.dataset.copyText, button);
     return;
@@ -591,6 +630,8 @@ function handleDocumentInput(event) {
 }
 
 populateTimezones();
+renderExampleList("regex");
+renderExampleList("cron");
 applyTheme(readTheme());
 readRouteFromHash();
 writeStateToDom(states[activeTool]);

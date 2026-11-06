@@ -596,6 +596,169 @@ export function computeRegex(pattern, flags = "g", text = "", replaceText = null
   return { matches, replacement };
 }
 
+export const TOOL_EXAMPLES = {
+  regex: [
+    {
+      id: "email",
+      title: "匹配邮箱",
+      description: "提取常见邮箱地址，并展示两个捕获分组。",
+      state: {
+        version: 1,
+        toolId: "regex",
+        input: String.raw`\b([\w.-]+)@([\w.-]+\.[a-z]{2,})\b`,
+        params: {
+          flags: "gi",
+          testText: "联系 alice@example.com 或 bob@example.org",
+          replaceText: "$1 [at] $2",
+        },
+      },
+    },
+    {
+      id: "url",
+      title: "匹配 URL",
+      description: "提取文本中的 http 与 https 链接。",
+      state: {
+        version: 1,
+        toolId: "regex",
+        input: String.raw`https?:\/\/[^\s]+`,
+        params: {
+          flags: "gi",
+          testText: "文档：https://example.com/docs 和 http://example.org/page",
+          replaceText: "",
+        },
+      },
+    },
+    {
+      id: "mobile-cn",
+      title: "匹配手机号",
+      description: "按行匹配中国大陆常见手机号格式。",
+      state: {
+        version: 1,
+        toolId: "regex",
+        input: String.raw`^1[3-9]\d{9}$`,
+        params: {
+          flags: "gm",
+          testText: "13812345678\n12345678901\n19912345678",
+          replaceText: "",
+        },
+      },
+    },
+    {
+      id: "iso-date",
+      title: "匹配 ISO 日期",
+      description: "提取 YYYY-MM-DD 日期，并分别捕获年、月、日。",
+      state: {
+        version: 1,
+        toolId: "regex",
+        input: String.raw`\b(\d{4})-(\d{2})-(\d{2})\b`,
+        params: {
+          flags: "g",
+          testText: "发布日期：2026-11-06；截止日期：2026-12-31",
+          replaceText: "",
+        },
+      },
+    },
+    {
+      id: "hex-color",
+      title: "匹配颜色值",
+      description: "匹配三位或六位十六进制颜色值。",
+      state: {
+        version: 1,
+        toolId: "regex",
+        input: String.raw`#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b`,
+        params: {
+          flags: "g",
+          testText: "主题色 #2563EB，成功色 #16a34a，边框 #ddd",
+          replaceText: "",
+        },
+      },
+    },
+  ],
+  cron: [
+    {
+      id: "every-minute",
+      title: "每分钟",
+      description: "所有字段均为 *，每一分钟执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "* * * * *",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+    {
+      id: "every-five-minutes",
+      title: "每 5 分钟",
+      description: "分钟字段使用 */5，每 5 分钟执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "*/5 * * * *",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+    {
+      id: "hourly",
+      title: "每小时",
+      description: "每小时第 0 分钟执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "0 * * * *",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+    {
+      id: "daily-nine",
+      title: "每天 09:00",
+      description: "每天 09:00 执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "0 9 * * *",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+    {
+      id: "weekday-nine",
+      title: "工作日 09:00",
+      description: "星期一至星期五 09:00 执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "0 9 * * MON-FRI",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+    {
+      id: "monthly-first-day",
+      title: "每月 1 日 00:00",
+      description: "每月 1 日零点执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "0 0 1 * *",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+    {
+      id: "quarterly-first-day",
+      title: "每季度第一天",
+      description: "每 3 个月的第一天零点执行。",
+      state: {
+        version: 1,
+        toolId: "cron",
+        input: "0 0 1 */3 *",
+        params: { timezone: "system", previewCount: 5 },
+      },
+    },
+  ],
+};
+
+export function getToolExamples(toolId) {
+  return structuredClone(TOOL_EXAMPLES[toolId] || []);
+}
+
 export function createDefaultState(toolId = "json") {
   if (!TOOL_IDS.includes(toolId)) toolId = "json";
   const states = {
