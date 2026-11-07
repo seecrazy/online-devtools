@@ -28,6 +28,10 @@ import {
   processCsv,
   processJsonToTs,
   processXml,
+  processSql,
+  processMarkdown,
+  processYaml,
+  processToml,
 } from "../assets/core.js";
 
 test("JSON is formatted and minified", () => {
@@ -408,4 +412,207 @@ test("v1.3 tool states survive URL hash encoding", () => {
     params: { mode: "fromJson", delimiter: "tab", header: false },
   };
   assert.deepEqual(stateFromHash(stateToHash(csvState)), csvState);
+});
+
+test("SQL formatter breaks major keywords and keeps string literals intact", () => {
+  const result = processSql(
+    "select id, 'select fake' from t where a = 1 and b = 2 order by id limit 5;",
+    { uppercase: true, indent: "2" },
+  );
+  assert.equal(result.status, "success");
+  assert.equal(
+    result.output,
+    [
+      "SELECT id, 'select fake'",
+      "FROM t",
+      "WHERE a = 1",
+      "  AND b = 2",
+      "ORDER BY id",
+      "LIMIT 5;",
+    ].join("\n"),
+  );
+
+  const join = processSql("select * from a left join b on b.id = a.id", { uppercase: true, indent: "2" });
+  assert.equal(join.output, ["SELECT *", "FROM a", "  LEFT JOIN b ON b.id = a.id"].join("\n"));
+
+  const lowercase = processSql("select 1", { uppercase: false, indent: "tab" });
+  assert.equal(lowercase.output, "select 1");
+});
+
+test("SQL formatter reports unclosed literals", () => {
+  const result = processSql("select 'abc", { uppercase: true, indent: "2" });
+  assert.equal(result.status, "error");
+  assert.match(result.error.message, /未闭合/);
+});
+
+test("Markdown renders headings, inline styles, lists and quotes with escaping", () => {
+  const html = processMarkdown("# 标题\n\n**粗体** *斜体* `code` <script>\n\n- 甲\n- 乙\n\n1. one\n2. two\n\n> 引用\n\n![图](/img.png)\n\n---\n").output;
+  assert.match(html, /<h1>标题<\/h1>/);
+  assert.match(html, /<strong>粗体<\/strong>/);
+  assert.match(html, /<em>斜体<\/em>/);
+  assert.match(html, /<code>code<\/code>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /<ul>\n  <li>甲<\/li>\n  <li>乙<\/li>\n<\/ul>/);
+  assert.match(html, /<ol>\n  <li>one<\/li>\n  <li>two<\/li>\n<\/ol>/);
+  assert.match(html, /<blockquote>/);
+  assert.match(html, /<img src="\/img\.png" alt="图">/);
+  assert.match(html, /<hr>/);
+
+  const code = processMarkdown("```js\nconst a = \"<b>\";\n```").output;
+  assert.match(code, /<pre><code class="language-js">&quot;|const a = /);
+});
+
+test("Markdown reports unclosed code fences", () => {
+  const result = processMarkdown("```js\nconst a = 1;\n");
+  assert.equal(result.status, "error");
+});
+
+test("YAML subset parses mappings, sequences, scalars and comments", () => {
+  const result = processYaml([
+    "# 注释",
+    "name: devtools",
+    "count: 3",
+    "rate: 0.5",
+    "active: true",
+    "empty: null",
+    "quoted: \"a: b #c\"",
+    "tags:",
+    "  - a",
+    "  - b",
+    "config:",
+    "  debug: true",
+    "  inline: [1, 2]",
+    "block: |",
+    "  line1",
+    "  line2",
+  ].join("\n"), { mode: "toJson" });
+  assert.equal(result.status, "success");
+  const parsed = JSON.parse(result.output);
+  assert.deepEqual(parsed, {
+    name: "devtools",
+    count: 3,
+    rate: 0.5,
+    active: true,
+    empty: null,
+    quoted: "a: b #c",
+    tags: ["a", "b"],
+    config: { debug: true, inline: [1, 2] },
+    block: "line1\nline2\n",
+  });
+});
+
+test("YAML subset rejects unsupported syntax with line info", () => {
+  const multiDoc = processYaml("---\na: 1", { mode: "toJson" });
+  assert.equal(multiDoc.status, "error");
+  assert.equal(multiDoc.error.line, 1);
+
+  const tab = processYaml("a:\n\tb: 1", { mode: "toJson" });
+  assert.equal(tab.status, "error");
+});
+
+test("JSON to YAML emits nested structures and quotes safely", () => {
+  const result = processYaml(JSON.stringify({
+    name: "app",
+    tags: ["x", "y"],
+    cfg: { debug: true, rate: 0.5 },
+    empty: {},
+    list: [],
+    weird: "a: b",
+  }), { mode: "fromJson" });
+  assert.equal(result.status, "success");
+  assert.match(result.output, /^name: app\n/);
+  assert.match(result.output, /tags:\n {2}- x\n {2}- y\n/);
+  assert.match(result.output, /cfg:\n {2}debug: true\n {2}rate: 0\.5\n/);
+  assert.match(result.output, /empty: \{\}\n/);
+  assert.match(result.output, /list: \[\]\n/);
+  assert.match(result.output, /weird: "a: b"/);
+});
+
+test("TOML subset parses tables, arrays of tables and dotted keys", () => {
+  const result = processToml([
+    'title = "demo"',
+    "count = 3",
+    "rate = 0.5",
+    "hex = 0xFF",
+    "flag = true",
+    "[owner]",
+    'name = "dev"',
+    "[owner.address]",
+    'city = "Shanghai"',
+    "[[items]]",
+    "id = 1",
+    "[[items]]",
+    "id = 2",
+    'tags = ["a", "b"]',
+  ].join("\n"), { mode: "toJson" });
+  assert.equal(result.status, "success");
+  const parsed = JSON.parse(result.output);
+  assert.deepEqual(parsed, {
+    title: "demo",
+    count: 3,
+    rate: 0.5,
+    hex: 255,
+    flag: true,
+    owner: { name: "dev", address: { city: "Shanghai" } },
+    items: [{ id: 1 }, { id: 2, tags: ["a", "b"] }],
+  });
+});
+
+test("TOML subset rejects duplicates and unsupported values with line info", () => {
+  const duplicate = processToml("[a]\nx = 1\n[a]\ny = 2", { mode: "toJson" });
+  assert.equal(duplicate.status, "error");
+
+  const multilineArray = processToml("a = [\n1,\n2\n]", { mode: "toJson" });
+  assert.equal(multilineArray.status, "error");
+  assert.match(multilineArray.error.message, /跨行/);
+
+  const datetime = processToml("d = 2026-01-01", { mode: "toJson" });
+  assert.equal(datetime.status, "error");
+});
+
+test("JSON to TOML emits tables and arrays of tables", () => {
+  const result = processToml(JSON.stringify({
+    title: "demo",
+    count: 3,
+    rate: 0.5,
+    flag: true,
+    emptyList: [],
+    owner: { name: "dev" },
+    items: [{ id: 1 }, { id: 2, tags: ["a", "b"] }],
+  }), { mode: "fromJson" });
+  assert.equal(result.status, "success");
+  const lines = result.output.split("\n");
+  assert.deepEqual(lines.slice(0, 5), ['title = "demo"', "count = 3", "rate = 0.5", "flag = true", "emptyList = []"]);
+  assert.ok(lines.includes("[owner]"));
+  assert.ok(lines.includes("[[items]]"));
+  assert.ok(lines.includes('tags = ["a", "b"]'));
+
+  const nullValue = processToml('{"a":null}', { mode: "fromJson" });
+  assert.equal(nullValue.status, "error");
+});
+
+test("v1.3 batch two tool states survive URL hash encoding", () => {
+  const sqlState = {
+    version: 1,
+    toolId: "sql",
+    input: "select 1",
+    params: { uppercase: false, indent: "tab" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(sqlState)), sqlState);
+
+  const yamlState = {
+    version: 1,
+    toolId: "yaml",
+    input: "a: 1",
+    params: { mode: "fromJson" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(yamlState)), yamlState);
+
+  const tomlState = {
+    version: 1,
+    toolId: "toml",
+    input: "a = 1",
+    params: { mode: "toJson" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(tomlState)), tomlState);
 });

@@ -16,6 +16,10 @@ import {
   processJwt,
   processJson,
   processXml,
+  processSql,
+  processMarkdown,
+  processYaml,
+  processToml,
   processUrl,
   processUuid,
   searchHttpStatusCodes,
@@ -150,6 +154,30 @@ const dom = {
     output: document.querySelector("#xml-output"),
     status: document.querySelector("#xml-status"),
   },
+  sql: {
+    input: document.querySelector("#sql-input"),
+    indent: document.querySelector("#sql-indent"),
+    uppercase: document.querySelector("#sql-uppercase"),
+    output: document.querySelector("#sql-output"),
+    status: document.querySelector("#sql-status"),
+  },
+  markdown: {
+    input: document.querySelector("#markdown-input"),
+    output: document.querySelector("#markdown-output"),
+    status: document.querySelector("#markdown-status"),
+  },
+  yaml: {
+    input: document.querySelector("#yaml-input"),
+    mode: document.querySelector("#yaml-mode"),
+    output: document.querySelector("#yaml-output"),
+    status: document.querySelector("#yaml-status"),
+  },
+  toml: {
+    input: document.querySelector("#toml-input"),
+    mode: document.querySelector("#toml-mode"),
+    output: document.querySelector("#toml-output"),
+    status: document.querySelector("#toml-status"),
+  },
 };
 
 const states = Object.fromEntries(TOOL_IDS.map((toolId) => [toolId, createDefaultState(toolId)]));
@@ -215,6 +243,22 @@ const samples = {
   xml: {
     input: `<?xml version="1.0"?>\n<config debug="true"><!-- 本地配置 --><item id="1">alpha</item><empty/></config>`,
     params: { indent: "2" },
+  },
+  sql: {
+    input: "select u.id, u.name, o.total from users u left join orders o on o.user_id = u.id where u.active = 1 and o.total > 100 order by o.total desc limit 10;",
+    params: { uppercase: true, indent: "2" },
+  },
+  markdown: {
+    input: "# Online DevTools\n\n**本地处理**，支持 `code`、[链接](https://example.com) 与列表：\n\n- 快速\n- 隐私安全\n",
+    params: {},
+  },
+  yaml: {
+    input: "name: devtools\nversion: 1\ntags:\n  - fast\n  - local\nconfig:\n  debug: true\n  rate: 0.5\n",
+    params: { mode: "toJson" },
+  },
+  toml: {
+    input: "title = \"demo\"\ncount = 3\n\n[owner]\nname = \"dev\"\n\n[[items]]\nid = 1\n",
+    params: { mode: "toJson" },
   },
 };
 
@@ -379,6 +423,18 @@ function readStateFromDom(toolId = activeTool) {
   } else if (toolId === "xml") {
     state.input = dom.xml.input.value;
     state.params.indent = dom.xml.indent.value;
+  } else if (toolId === "sql") {
+    state.input = dom.sql.input.value;
+    state.params.indent = dom.sql.indent.value;
+    state.params.uppercase = dom.sql.uppercase.checked;
+  } else if (toolId === "markdown") {
+    state.input = dom.markdown.input.value;
+  } else if (toolId === "yaml") {
+    state.input = dom.yaml.input.value;
+    state.params.mode = dom.yaml.mode.value;
+  } else if (toolId === "toml") {
+    state.input = dom.toml.input.value;
+    state.params.mode = dom.toml.mode.value;
   }
   return state;
 }
@@ -445,6 +501,18 @@ function writeStateToDom(state) {
   } else if (state.toolId === "xml") {
     dom.xml.input.value = state.input;
     dom.xml.indent.value = state.params.indent;
+  } else if (state.toolId === "sql") {
+    dom.sql.input.value = state.input;
+    dom.sql.indent.value = state.params.indent;
+    dom.sql.uppercase.checked = state.params.uppercase !== false;
+  } else if (state.toolId === "markdown") {
+    dom.markdown.input.value = state.input;
+  } else if (state.toolId === "yaml") {
+    dom.yaml.input.value = state.input;
+    dom.yaml.mode.value = state.params.mode;
+  } else if (state.toolId === "toml") {
+    dom.toml.input.value = state.input;
+    dom.toml.mode.value = state.params.mode;
   }
 }
 
@@ -814,6 +882,66 @@ function renderXml(result) {
   setStatus(dom.xml.status, "XML 校验通过，格式化完成。", "success");
 }
 
+function renderSql(result) {
+  if (result.status === "idle") {
+    setOutput(dom.sql.output, "");
+    setStatus(dom.sql.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.sql.output, "");
+    setStatus(dom.sql.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.sql.output, result.output);
+  setStatus(dom.sql.status, "SQL 格式化完成。", "success");
+}
+
+function renderMarkdownResult(result) {
+  if (result.status === "idle") {
+    setOutput(dom.markdown.output, "");
+    setStatus(dom.markdown.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.markdown.output, "");
+    setStatus(dom.markdown.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.markdown.output, result.output);
+  setStatus(dom.markdown.status, "HTML 渲染完成。", "success");
+}
+
+function renderYaml(result) {
+  if (result.status === "idle") {
+    setOutput(dom.yaml.output, "");
+    setStatus(dom.yaml.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.yaml.output, "");
+    setStatus(dom.yaml.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.yaml.output, result.output);
+  setStatus(dom.yaml.status, result.mode === "fromJson" ? "YAML 生成成功。" : "JSON 生成成功。", "success");
+}
+
+function renderToml(result) {
+  if (result.status === "idle") {
+    setOutput(dom.toml.output, "");
+    setStatus(dom.toml.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.toml.output, "");
+    setStatus(dom.toml.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.toml.output, result.output);
+  setStatus(dom.toml.status, result.mode === "fromJson" ? "TOML 生成成功。" : "JSON 生成成功。", "success");
+}
+
 let regexWorker = null;
 let regexRunId = 0;
 let regexTimeoutId = null;
@@ -974,6 +1102,14 @@ async function processToolNow() {
     renderJsonToTs(processJsonToTs(state.input, state.params));
   } else if (state.toolId === "xml") {
     renderXml(processXml(state.input, state.params));
+  } else if (state.toolId === "sql") {
+    renderSql(processSql(state.input, state.params));
+  } else if (state.toolId === "markdown") {
+    renderMarkdownResult(processMarkdown(state.input));
+  } else if (state.toolId === "yaml") {
+    renderYaml(processYaml(state.input, state.params));
+  } else if (state.toolId === "toml") {
+    renderToml(processToml(state.input, state.params));
   }
 }
 
@@ -1129,6 +1265,10 @@ function handleDocumentInput(event) {
     csv: ["csv-input", "csv-mode", "csv-delimiter", "csv-header"],
     jsonts: ["jsonts-input", "jsonts-root"],
     xml: ["xml-input", "xml-indent"],
+    sql: ["sql-input", "sql-indent", "sql-uppercase"],
+    markdown: ["markdown-input"],
+    yaml: ["yaml-input", "yaml-mode"],
+    toml: ["toml-input", "toml-mode"],
   }).find(([, ids]) => ids.includes(control.id))?.[0];
 
   if (!toolId) return;

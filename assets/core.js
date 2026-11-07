@@ -16,6 +16,10 @@ export const TOOL_IDS = [
   "csv",
   "jsonts",
   "xml",
+  "sql",
+  "markdown",
+  "yaml",
+  "toml",
 ];
 export const MAX_INPUT_LENGTH = 1024 * 1024;
 export const MAX_URL_STATE_LENGTH = 64 * 1024;
@@ -1693,6 +1697,904 @@ export function processXml(input, params = {}) {
   }
 }
 
+const SQL_CASE_KEYWORDS = new Set([
+  "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "NULL", "AS", "ON", "JOIN", "LEFT", "RIGHT", "FULL",
+  "INNER", "OUTER", "CROSS", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE",
+  "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET",
+  "DISTINCT", "UNION", "UNION ALL", "INTERSECT", "EXCEPT", "IN", "BETWEEN", "LIKE", "IS", "EXISTS",
+  "CASE", "WHEN", "THEN", "ELSE", "END", "ASC", "DESC", "RETURNING", "DEFAULT", "UNIQUE", "INDEX", "VIEW",
+]);
+const SQL_MAJOR_KEYWORDS = new Set([
+  "SELECT", "FROM", "WHERE", "GROUP BY", "HAVING", "ORDER BY", "LIMIT", "OFFSET",
+  "UNION", "UNION ALL", "INTERSECT", "EXCEPT", "VALUES", "RETURNING", "SET",
+]);
+
+function tokenizeSql(text) {
+  const tokens = [];
+  let index = 0;
+  while (index < text.length) {
+    const char = text[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "-" && text[index + 1] === "-") {
+      const end = text.indexOf("\n", index);
+      const stop = end === -1 ? text.length : end;
+      tokens.push({ type: "comment", value: text.slice(index, stop).trim() });
+      index = stop;
+      continue;
+    }
+    if (char === "/" && text[index + 1] === "*") {
+      const end = text.indexOf("*/", index + 2);
+      if (end === -1) throw new Error("SQL 块注释未闭合。");
+      tokens.push({ type: "comment", value: text.slice(index, end + 2) });
+      index = end + 2;
+      continue;
+    }
+    if (char === "'") {
+      let cursor = index + 1;
+      while (cursor < text.length) {
+        if (text[cursor] === "'" && text[cursor + 1] === "'") {
+          cursor += 2;
+          continue;
+        }
+        if (text[cursor] === "'") break;
+        cursor += 1;
+      }
+      if (cursor >= text.length) throw new Error("SQL 字符串字面量未闭合。");
+      tokens.push({ type: "string", value: text.slice(index, cursor + 1) });
+      index = cursor + 1;
+      continue;
+    }
+    if (char === '"' || char === "`") {
+      const end = text.indexOf(char, index + 1);
+      if (end === -1) throw new Error("SQL 引用标识符未闭合。");
+      tokens.push({ type: "quoted", value: text.slice(index, end + 1) });
+      index = end + 1;
+      continue;
+    }
+    if (char === "[") {
+      const end = text.indexOf("]", index);
+      if (end === -1) throw new Error("SQL 括号标识符未闭合。");
+      tokens.push({ type: "quoted", value: text.slice(index, end + 1) });
+      index = end + 1;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(char)) {
+      let cursor = index;
+      while (cursor < text.length && /[\w$]/.test(text[cursor])) cursor += 1;
+      tokens.push({ type: "word", value: text.slice(index, cursor) });
+      index = cursor;
+      continue;
+    }
+    if (/[0-9]/.test(char) || (char === "." && /[0-9]/.test(text[index + 1] ?? ""))) {
+      let cursor = index + 1;
+      while (cursor < text.length && /[\w.]/.test(text[cursor])) cursor += 1;
+      tokens.push({ type: "number", value: text.slice(index, cursor) });
+      index = cursor;
+      continue;
+    }
+    tokens.push({ type: "punct", value: char });
+    index += 1;
+  }
+  return tokens;
+}
+
+export function formatSql(text, { indent = "2", uppercase = true } = {}) {
+  const tokens = tokenizeSql(text);
+  const unit = indent === "tab" ? "\t" : indent === "4" ? "    " : "  ";
+  const lines = [];
+  let line = "";
+  let depth = 0;
+  let clauseIndent = 0;
+
+  const flush = () => {
+    if (line.trim()) lines.push(unit.repeat(clauseIndent) + line.trim());
+    line = "";
+  };
+  const emit = (value) => {
+    if (!line) {
+      line = value;
+      return;
+    }
+    const glueBefore = /^[.,;)]/.test(value);
+    const lastChar = line.trimEnd().slice(-1);
+    const glueAfter = lastChar === "(" || lastChar === ".";
+    line += glueBefore || glueAfter ? value : ` ${value}`;
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.type === "comment") {
+      flush();
+      lines.push(unit.repeat(clauseIndent) + token.value);
+      continue;
+    }
+
+    if (token.type === "word" && depth === 0) {
+      const next = tokens[index + 1];
+      const twoWord = next && next.type === "word" ? `${token.value.toUpperCase()} ${next.value.toUpperCase()}` : "";
+      const keyword = SQL_MAJOR_KEYWORDS.has(twoWord) ? twoWord : token.value.toUpperCase();
+
+      if (SQL_MAJOR_KEYWORDS.has(keyword)) {
+        flush();
+        clauseIndent = 0;
+        emit(uppercase || keyword === twoWord ? keyword : token.value);
+        if (keyword === twoWord) index += 1;
+        continue;
+      }
+      if (token.value.toUpperCase() === "JOIN") {
+        const modifierMatch = / ((?:LEFT|RIGHT|FULL|INNER|OUTER|CROSS)(?: (?:LEFT|RIGHT|FULL|INNER|OUTER|CROSS))*)$/i.exec(line);
+        let modifiers = "";
+        if (modifierMatch) {
+          modifiers = modifierMatch[1];
+          line = line.slice(0, modifierMatch.index);
+        }
+        flush();
+        clauseIndent = 1;
+        emit(`${modifiers} ${uppercase ? "JOIN" : token.value}`.trim());
+        continue;
+      }
+      if (["AND", "OR"].includes(token.value.toUpperCase())) {
+        flush();
+        clauseIndent = Math.max(clauseIndent, 1);
+        emit(uppercase ? token.value.toUpperCase() : token.value);
+        continue;
+      }
+    }
+
+    if (token.type === "punct" && token.value === "(") depth += 1;
+    if (token.type === "punct" && token.value === ")") depth = Math.max(0, depth - 1);
+
+    if (token.type === "punct" && token.value === ";") {
+      emit(";");
+      flush();
+      clauseIndent = 0;
+      continue;
+    }
+    const display = token.type === "word" && uppercase && SQL_CASE_KEYWORDS.has(token.value.toUpperCase())
+      ? token.value.toUpperCase()
+      : token.value;
+    emit(display);
+  }
+  flush();
+  return lines.join("\n");
+}
+
+export function processSql(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  try {
+    const uppercase = params.uppercase !== false;
+    const indent = ["2", "4", "tab"].includes(params.indent) ? params.indent : "2";
+    return success(formatSql(input, { indent, uppercase }), { indent, uppercase });
+  } catch (error) {
+    return failure(error.message, { tool: "sql" });
+  }
+}
+
+function escapeHtmlText(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function escapeHtmlAttr(value) {
+  return escapeHtmlText(value).replaceAll('"', "&quot;");
+}
+
+function renderMarkdownInline(text) {
+  const codeSpans = [];
+  let worked = escapeHtmlText(text).replace(/`([^`]+)`/g, (_, code) => {
+    codeSpans.push(`<code>${code}</code>`);
+    return `\u0000${codeSpans.length - 1}\u0000`;
+  });
+  worked = worked
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => `<img src="${escapeHtmlAttr(src)}" alt="${alt}">`)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => `<a href="${escapeHtmlAttr(href)}">${label}</a>`)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  return worked.replace(/\u0000(\d+)\u0000/g, (_, index) => codeSpans[Number(index)]);
+}
+
+export function renderMarkdown(text) {
+  const rawLines = text.split("\n");
+  const html = [];
+  let index = 0;
+
+  while (index < rawLines.length) {
+    const line = rawLines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = /^\s*```(\S*)\s*$/.exec(line);
+    if (fence) {
+      const codeLines = [];
+      index += 1;
+      while (index < rawLines.length && !/^\s*```\s*$/.test(rawLines[index])) {
+        codeLines.push(rawLines[index]);
+        index += 1;
+      }
+      if (index >= rawLines.length) throw new Error("Markdown 代码块未闭合。");
+      index += 1;
+      const langClass = fence[1] ? ` class="language-${escapeHtmlAttr(fence[1])}"` : "";
+      html.push(`<pre><code${langClass}>${escapeHtmlText(codeLines.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      html.push(`<h${heading[1].length}>${renderMarkdownInline(heading[2])}</h${heading[1].length}>`);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      html.push("<hr>");
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quoteLines = [];
+      while (index < rawLines.length && /^\s*>\s?/.test(rawLines[index])) {
+        quoteLines.push(rawLines[index].replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      html.push(`<blockquote>\n${renderMarkdown(quoteLines.join("\n")).trimEnd()}\n</blockquote>`);
+      continue;
+    }
+
+    const ulMatch = /^\s*[-*+]\s+/.test(line);
+    const olMatch = /^\s*\d+[.)]\s+/.test(line);
+    if (ulMatch || olMatch) {
+      const items = [];
+      const itemPattern = ulMatch ? /^\s*[-*+]\s+/ : /^\s*\d+[.)]\s+/;
+      while (index < rawLines.length && itemPattern.test(rawLines[index])) {
+        items.push(rawLines[index].replace(itemPattern, ""));
+        index += 1;
+      }
+      const tag = olMatch ? "ol" : "ul";
+      html.push(`<${tag}>\n${items.map((item) => `  <li>${renderMarkdownInline(item)}</li>`).join("\n")}\n</${tag}>`);
+      continue;
+    }
+
+    const paragraph = [];
+    while (index < rawLines.length && rawLines[index].trim() &&
+      !/^\s*(?:```|#{1,6}\s|>\s?|[-*+]\s+|\d+[.)]\s+|-{3,}|\*{3,}|_{3,})/.test(rawLines[index])) {
+      paragraph.push(rawLines[index].trim());
+      index += 1;
+    }
+    html.push(`<p>${renderMarkdownInline(paragraph.join("\n"))}</p>`);
+  }
+  return html.join("\n");
+}
+
+export function processMarkdown(input) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  try {
+    return success(renderMarkdown(input), {});
+  } catch (error) {
+    return failure(error.message, { tool: "markdown" });
+  }
+}
+
+function stripInlineComment(raw) {
+  let quote = null;
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "#" && (index === 0 || /\s/.test(raw[index - 1]))) {
+      return raw.slice(0, index);
+    }
+  }
+  return raw;
+}
+
+function unquoteYaml(value, line) {
+  if (value.startsWith('"')) {
+    if (!value.endsWith('"') || value.length < 2) throw new Error(`YAML 第 ${line} 行：双引号字符串未闭合。`);
+    return value.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\n", "\n").replaceAll("\\t", "\t").replaceAll("\\\\", "\\");
+  }
+  if (value.startsWith("'")) {
+    if (!value.endsWith("'") || value.length < 2) throw new Error(`YAML 第 ${line} 行：单引号字符串未闭合。`);
+    return value.slice(1, -1).replaceAll("''", "'");
+  }
+  return value;
+}
+
+function splitFlowItems(value, line, kind) {
+  const items = [];
+  let current = "";
+  let quote = null;
+  let depth = 0;
+  for (const char of value) {
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "[" || char === "{") depth += 1;
+    if (char === "]" || char === "}") depth -= 1;
+    if (char === "," && depth === 0) {
+      items.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (quote) throw new Error(`YAML 第 ${line} 行：行内集合引号未闭合。`);
+  if (current.trim() || items.length) items.push(current.trim());
+  if (items.some((item) => item.startsWith("[") || item.startsWith("{"))) {
+    throw new Error(`YAML 第 ${line} 行：暂不支持嵌套行内${kind}。`);
+  }
+  return items;
+}
+
+function parseYamlScalar(raw, line) {
+  const value = raw.trim();
+  if (!value) return null;
+  if (value === "~" || value === "null" || value === "Null" || value === "NULL") return null;
+  if (value === "true" || value === "True" || value === "TRUE") return true;
+  if (value === "false" || value === "False" || value === "FALSE") return false;
+  if (/^[+-]?\d+$/.test(value)) return Number(value);
+  if (/^[+-]?\d+\.\d+$/.test(value)) return Number(value);
+  if (value.startsWith("[") || value.startsWith("{")) {
+    const closing = value.startsWith("[") ? "]" : "}";
+    if (!value.endsWith(closing)) throw new Error(`YAML 第 ${line} 行：行内集合未闭合。`);
+    const inner = value.slice(1, -1).trim();
+    if (!inner) return value.startsWith("[") ? [] : {};
+    if (value.startsWith("[")) return splitFlowItems(inner, line, "数组").map((item) => parseYamlScalar(item, line));
+    const map = {};
+    for (const pair of splitFlowItems(inner, line, "映射")) {
+      const colon = pair.indexOf(":");
+      if (colon <= 0) throw new Error(`YAML 第 ${line} 行：行内映射格式无效。`);
+      map[unquoteYaml(pair.slice(0, colon).trim(), line)] = parseYamlScalar(pair.slice(colon + 1), line);
+    }
+    return map;
+  }
+  if (value.startsWith('"') || value.startsWith("'")) return unquoteYaml(value, line);
+  return value;
+}
+
+function findMapColon(text) {
+  let quote = null;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ":" && (index === text.length - 1 || text[index + 1] === " ")) return index;
+  }
+  return -1;
+}
+
+export function parseYaml(text) {
+  const rawLines = text.split("\n");
+  const entries = [];
+  for (const [index, raw] of rawLines.entries()) {
+    if (/^\t|^\s+\t/.test(raw)) {
+      throw new Error(`YAML 第 ${index + 1} 行：缩进不能使用 Tab。`);
+    }
+    const noComment = stripInlineComment(raw);
+    const trimmed = noComment.trim();
+    if (!trimmed) continue;
+    if (trimmed === "---" || trimmed === "...") {
+      throw new Error(`YAML 第 ${index + 1} 行：暂不支持多文档 YAML。`);
+    }
+    entries.push({
+      indent: noComment.length - noComment.trimStart().length,
+      text: trimmed,
+      raw: noComment,
+      line: index + 1,
+    });
+  }
+  if (!entries.length) return null;
+
+  const isSeqItem = (entry) => entry.text.startsWith("- ") || entry.text === "-";
+
+  const parseBlock = (start, minIndent) => {
+    const first = entries[start];
+    const indent = first.indent;
+    if (indent < minIndent) return { value: null, next: start };
+
+    if (isSeqItem(first)) {
+      const items = [];
+      let cursor = start;
+      while (cursor < entries.length && entries[cursor].indent === indent && isSeqItem(entries[cursor])) {
+        const rest = entries[cursor].text === "-" ? "" : entries[cursor].text.slice(2).trim();
+        if (!rest) {
+          if (cursor + 1 < entries.length && entries[cursor + 1].indent > indent) {
+            const nested = parseBlock(cursor + 1, indent + 1);
+            items.push(nested.value);
+            cursor = nested.next;
+          } else {
+            items.push(null);
+            cursor += 1;
+          }
+          continue;
+        }
+        if (findMapColon(rest) >= 0) {
+          const saved = entries[cursor];
+          entries[cursor] = { ...saved, indent: indent + 2, text: rest };
+          const nested = parseBlock(cursor, indent + 1);
+          entries[cursor] = saved;
+          items.push(nested.value);
+          cursor = nested.next;
+          continue;
+        }
+        items.push(parseYamlScalar(rest, entries[cursor].line));
+        cursor += 1;
+      }
+      return { value: items, next: cursor };
+    }
+
+    const map = {};
+    let cursor = start;
+    while (cursor < entries.length) {
+      const entry = entries[cursor];
+      if (entry.indent < indent) break;
+      if (entry.indent > indent) {
+        throw new Error(`YAML 第 ${entry.line} 行：缩进不一致。`);
+      }
+      if (isSeqItem(entry)) break;
+      const colon = findMapColon(entry.text);
+      if (colon < 0) {
+        throw new Error(`YAML 第 ${entry.line} 行：无法识别映射键。`);
+      }
+      const key = unquoteYaml(entry.text.slice(0, colon).trim(), entry.line);
+      const valueRaw = entry.text.slice(colon + 1).trim();
+
+      if (valueRaw === "|" || valueRaw === "|-") {
+        const blockLines = [];
+        let probe = cursor + 1;
+        let blockIndent = null;
+        while (probe < entries.length && entries[probe].indent > indent) {
+          if (blockIndent === null) blockIndent = entries[probe].raw.match(/^ */)[0].length;
+          blockLines.push(entries[probe].raw.slice(blockIndent));
+          probe += 1;
+        }
+        map[key] = blockLines.join("\n") + (valueRaw === "|" ? "\n" : "");
+        cursor = probe;
+        continue;
+      }
+
+      if (valueRaw) {
+        map[key] = parseYamlScalar(valueRaw, entry.line);
+        cursor += 1;
+        continue;
+      }
+
+      if (cursor + 1 < entries.length) {
+        const next = entries[cursor + 1];
+        if (next.indent > indent) {
+          const nested = parseBlock(cursor + 1, indent + 1);
+          map[key] = nested.value;
+          cursor = nested.next;
+          continue;
+        }
+        if (next.indent === indent && isSeqItem(next)) {
+          const nested = parseBlock(cursor + 1, indent);
+          map[key] = nested.value;
+          cursor = nested.next;
+          continue;
+        }
+      }
+      map[key] = null;
+      cursor += 1;
+    }
+    return { value: map, next: cursor };
+  };
+
+  if (!findMapColon(entries[0].text) && !isSeqItem(entries[0]) && entries.length === 1) {
+    return parseYamlScalar(entries[0].text, entries[0].line);
+  }
+
+  const result = parseBlock(0, 0);
+  if (result.next < entries.length) {
+    throw new Error(`YAML 第 ${entries[result.next].line} 行：缩进不一致或无法识别的结构。`);
+  }
+  return result.value;
+}
+
+function yamlPlainSafe(value) {
+  return value !== "" && value.trim() === value &&
+    !/^[\s&*!|>'"%@`{}\[\],#-]/.test(value) &&
+    !/[:#]/.test(value) &&
+    !/^(true|false|null|~|True|False|Null|TRUE|FALSE|NULL)$/i.test(value) &&
+    !/^[+-]?\d+(\.\d+)?$/.test(value);
+}
+
+function yamlString(value) {
+  if (yamlPlainSafe(value)) return value;
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\t", "\\t")}"`;
+}
+
+function yamlKey(key) {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : yamlString(key);
+}
+
+function jsonToYamlLines(value, indent) {
+  const pad = " ".repeat(indent);
+  if (Array.isArray(value)) {
+    if (!value.length) return [`${pad}[]`];
+    const lines = [];
+    for (const item of value) {
+      if (item && typeof item === "object") {
+        const child = jsonToYamlLines(item, indent + 2);
+        lines.push(`${pad}- ${child[0].trim()}`);
+        lines.push(...child.slice(1));
+      } else {
+        lines.push(`${pad}- ${item === null ? "null" : typeof item === "string" ? yamlString(item) : String(item)}`);
+      }
+    }
+    return lines;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (!entries.length) return [`${pad}{}`];
+    const lines = [];
+    for (const [key, child] of entries) {
+      if (child === null || typeof child !== "object") {
+        lines.push(`${pad}${yamlKey(key)}: ${child === null ? "null" : typeof child === "string" ? yamlString(child) : String(child)}`);
+      } else if (!Object.keys(child).length) {
+        lines.push(`${pad}${yamlKey(key)}: ${Array.isArray(child) ? "[]" : "{}"}`);
+      } else {
+        lines.push(`${pad}${yamlKey(key)}:`);
+        lines.push(...jsonToYamlLines(child, indent + 2));
+      }
+    }
+    return lines;
+  }
+  return [`${pad}${value === null ? "null" : typeof value === "string" ? yamlString(value) : String(value)}`];
+}
+
+export function jsonToYaml(value) {
+  return jsonToYamlLines(value, 0).join("\n") + "\n";
+}
+
+export function processYaml(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  const mode = params.mode === "fromJson" ? "fromJson" : "toJson";
+  try {
+    if (mode === "fromJson") {
+      let parsed;
+      try {
+        parsed = JSON.parse(input);
+      } catch (error) {
+        throw new Error(`JSON 解析失败：${error.message}`);
+      }
+      return success(jsonToYaml(parsed), { mode });
+    }
+    const parsed = parseYaml(input);
+    return success(JSON.stringify(parsed, null, 2), { mode });
+  } catch (error) {
+    const lineMatch = /第 (\d+) 行/.exec(error.message);
+    return failure(error.message, { tool: "yaml", line: lineMatch ? Number(lineMatch[1]) : null });
+  }
+}
+
+function parseTomlString(value, line) {
+  if (value.startsWith('"')) {
+    let out = "";
+    let index = 1;
+    while (index < value.length) {
+      const char = value[index];
+      if (char === '"') return { text: out, end: index };
+      if (char === "\\") {
+        const next = value[index + 1];
+        const escapes = { '"': '"', "\\": "\\", n: "\n", t: "\t", r: "\r" };
+        if (next === "u" || next === "U") {
+          const size = next === "u" ? 4 : 8;
+          const hex = value.slice(index + 2, index + 2 + size);
+          if (!/^[0-9a-fA-F]+$/.test(hex)) throw new Error(`TOML 第 ${line} 行：Unicode 转义无效。`);
+          out += String.fromCodePoint(Number.parseInt(hex, 16));
+          index += 2 + size;
+          continue;
+        }
+        if (!(next in escapes)) throw new Error(`TOML 第 ${line} 行：转义字符无效。`);
+        out += escapes[next];
+        index += 2;
+        continue;
+      }
+      out += char;
+      index += 1;
+    }
+    throw new Error(`TOML 第 ${line} 行：字符串未闭合。`);
+  }
+  const end = value.indexOf("'", 1);
+  if (end === -1) throw new Error(`TOML 第 ${line} 行：字符串未闭合。`);
+  return { text: value.slice(1, end), end };
+}
+
+function splitTomlTopLevel(text) {
+  const items = [];
+  let current = "";
+  let quote = null;
+  let depth = 0;
+  for (const char of text) {
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "[" || char === "{") depth += 1;
+    if (char === "]" || char === "}") depth -= 1;
+    if (char === "," && depth === 0) {
+      items.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (quote) throw new Error("TOML 集合引号未闭合。");
+  if (current.trim() || items.length) items.push(current.trim());
+  return items;
+}
+
+function parseTomlValue(raw, line) {
+  const value = raw.trim();
+  if (!value) throw new Error(`TOML 第 ${line} 行：缺少值。`);
+  if (value.startsWith('"') || value.startsWith("'")) {
+    const parsed = parseTomlString(value, line);
+    const rest = value.slice(parsed.end + 1).trim();
+    if (rest) throw new Error(`TOML 第 ${line} 行：字符串后有多余内容。`);
+    return parsed.text;
+  }
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (value.startsWith("[") || value.startsWith("{")) {
+    const closing = value.startsWith("[") ? "]" : "}";
+    if (!value.endsWith(closing)) {
+      throw new Error(`TOML 第 ${line} 行：暂不支持跨行的${value.startsWith("[") ? "数组" : "行内表"}。`);
+    }
+    const inner = value.slice(1, -1).trim();
+    if (!inner) return value.startsWith("[") ? [] : {};
+    if (value.startsWith("[")) return splitTomlTopLevel(inner).map((item) => parseTomlValue(item, line));
+    const map = {};
+    for (const pair of splitTomlTopLevel(inner)) {
+      const eq = pair.indexOf("=");
+      if (eq <= 0) throw new Error(`TOML 第 ${line} 行：行内表格式无效。`);
+      map[tomlKeyRaw(pair.slice(0, eq).trim())] = parseTomlValue(pair.slice(eq + 1), line);
+    }
+    return map;
+  }
+  if (/^[+-]?\d+(_\d+)*$/.test(value)) return Number(value.replaceAll("_", ""));
+  if (/^0x[0-9a-f]+$/i.test(value)) return Number.parseInt(value.slice(2), 16);
+  if (/^0o[0-7]+$/i.test(value)) return Number.parseInt(value.slice(2), 8);
+  if (/^0b[01]+$/i.test(value)) return Number.parseInt(value.slice(2), 2);
+  if (/^[+-]?(\d+(_\d+)*)*\.?\d+(_\d+)*([eE][+-]?\d+)?$/.test(value) && /[.eE]/.test(value)) {
+    return Number(value.replaceAll("_", ""));
+  }
+  throw new Error(`TOML 第 ${line} 行：无法识别的值（暂不支持日期时间与多行字符串）。`);
+}
+
+function tomlKeyRaw(key) {
+  if (key.startsWith('"') || key.startsWith("'")) return unquoteYaml(key, 0);
+  return key;
+}
+
+function parseTomlKeyPath(key) {
+  const parts = [];
+  let current = "";
+  let quote = null;
+  for (const char of key) {
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === ".") {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current.trim());
+  return parts.map((part) => {
+    if (!part) throw new Error("TOML 键名无效。");
+    return tomlKeyRaw(part);
+  });
+}
+
+export function parseToml(text) {
+  const root = {};
+  let current = root;
+  const definedTables = new Set();
+
+  text.split("\n").forEach((raw, index) => {
+    const line = index + 1;
+    const noComment = stripInlineComment(raw);
+    const trimmed = noComment.trim();
+    if (!trimmed) return;
+
+    if (trimmed.startsWith("[[")) {
+      if (!trimmed.endsWith("]]")) throw new Error(`TOML 第 ${line} 行：数组表头未闭合。`);
+      const path = parseTomlKeyPath(trimmed.slice(2, -2));
+      let node = root;
+      for (const part of path) {
+        if (!(part in node)) node[part] = {};
+        node = node[part];
+        if (Array.isArray(node) && node.length) node = node[node.length - 1];
+      }
+      const parent = path.length > 1 ? getPath(root, path.slice(0, -1)) : root;
+      const key = path[path.length - 1];
+      if (!Array.isArray(parent[key])) parent[key] = [];
+      parent[key].push({});
+      current = parent[key][parent[key].length - 1];
+      return;
+    }
+    if (trimmed.startsWith("[")) {
+      if (!trimmed.endsWith("]")) throw new Error(`TOML 第 ${line} 行：表头未闭合。`);
+      const path = parseTomlKeyPath(trimmed.slice(1, -1));
+      const signature = path.join(".");
+      if (definedTables.has(signature)) throw new Error(`TOML 第 ${line} 行：表 [${signature}] 重复定义。`);
+      definedTables.add(signature);
+      let node = root;
+      for (const part of path) {
+        if (part in node && (typeof node[part] !== "object" || node[part] === null || Array.isArray(node[part]))) {
+          throw new Error(`TOML 第 ${line} 行：[${signature}] 与已有键冲突。`);
+        }
+        if (!(part in node)) node[part] = {};
+        node = node[part];
+      }
+      current = node;
+      return;
+    }
+
+    const eq = findTomlEquals(trimmed);
+    if (eq < 0) throw new Error(`TOML 第 ${line} 行：无法识别的行。`);
+    const keyPath = parseTomlKeyPath(trimmed.slice(0, eq).trim());
+    let node = current;
+    for (const part of keyPath.slice(0, -1)) {
+      if (!(part in node) || typeof node[part] !== "object" || Array.isArray(node[part])) node[part] = {};
+      node = node[part];
+    }
+    const key = keyPath[keyPath.length - 1];
+    if (key in node) throw new Error(`TOML 第 ${line} 行：键 ${key} 重复定义。`);
+    node[key] = parseTomlValue(trimmed.slice(eq + 1), line);
+  });
+
+  return root;
+}
+
+function getPath(object, path) {
+  return path.reduce((node, part) => node?.[part], object);
+}
+
+function findTomlEquals(text) {
+  let quote = null;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "=") return index;
+  }
+  return -1;
+}
+
+function tomlString(value) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\t", "\\t")}"`;
+}
+
+function tomlKeyValue(value) {
+  if (value === null || value === undefined) throw new Error("TOML 不支持 null 值。");
+  if (typeof value === "string") return tomlString(value);
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    if (value.some((item) => item && typeof item === "object")) {
+      throw new Error("TOML 数组仅支持标量元素；对象数组请使用 [[table]] 结构。");
+    }
+    return `[${value.map((item) => tomlKeyValue(item)).join(", ")}]`;
+  }
+  throw new Error("TOML 行内表暂不支持在值位置输出嵌套对象。");
+}
+
+function tomlKey(key) {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : tomlString(key);
+}
+
+function jsonToTomlWalk(value, prefix, lines) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("JSON → TOML 根必须是对象。");
+  }
+  const entries = Object.entries(value);
+  for (const [key, child] of entries) {
+    const objectArray = Array.isArray(child) && child.some((item) => item && typeof item === "object" && !Array.isArray(item));
+    if (child !== null && typeof child === "object" && (!Array.isArray(child) || objectArray)) continue;
+    lines.push(`${tomlKey(key)} = ${tomlKeyValue(child)}`);
+  }
+  for (const [key, child] of entries) {
+    if (child === null || typeof child !== "object") continue;
+    const path = prefix ? `${prefix}.${tomlKey(key)}` : tomlKey(key);
+    if (Array.isArray(child)) {
+      if (!child.length) continue;
+      const allObjects = child.every((item) => item && typeof item === "object" && !Array.isArray(item));
+      const anyObject = child.some((item) => item && typeof item === "object" && !Array.isArray(item));
+      if (!anyObject) continue;
+      if (!allObjects) throw new Error(`TOML 键 ${key} 的数组元素类型不一致。`);
+      for (const element of child) {
+        lines.push(`[[${path}]]`);
+        jsonToTomlWalk(element, path, lines);
+      }
+      continue;
+    }
+    lines.push(`[${path}]`);
+    jsonToTomlWalk(child, path, lines);
+  }
+}
+
+export function jsonToToml(value) {
+  const lines = [];
+  jsonToTomlWalk(value, "", lines);
+  return lines.join("\n") + (lines.length ? "\n" : "");
+}
+
+export function processToml(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  const mode = params.mode === "fromJson" ? "fromJson" : "toJson";
+  try {
+    if (mode === "fromJson") {
+      let parsed;
+      try {
+        parsed = JSON.parse(input);
+      } catch (error) {
+        throw new Error(`JSON 解析失败：${error.message}`);
+      }
+      return success(jsonToToml(parsed), { mode });
+    }
+    const parsed = parseToml(input);
+    return success(JSON.stringify(parsed, null, 2), { mode });
+  } catch (error) {
+    const lineMatch = /第 (\d+) 行/.exec(error.message);
+    return failure(error.message, { tool: "toml", line: lineMatch ? Number(lineMatch[1]) : null });
+  }
+}
+
 export function createDefaultState(toolId = "json") {
   if (!TOOL_IDS.includes(toolId)) toolId = "json";
   const states = {
@@ -1713,6 +2615,10 @@ export function createDefaultState(toolId = "json") {
     csv: { toolId, input: "", params: { mode: "toJson", delimiter: "," } },
     jsonts: { toolId, input: "", params: { rootName: "Root" } },
     xml: { toolId, input: "", params: { indent: "2" } },
+    sql: { toolId, input: "", params: { uppercase: true, indent: "2" } },
+    markdown: { toolId, input: "", params: {} },
+    yaml: { toolId, input: "", params: { mode: "toJson" } },
+    toml: { toolId, input: "", params: { mode: "toJson" } },
   };
   return structuredClone(states[toolId]);
 }
@@ -1794,6 +2700,20 @@ function normalizeParams(toolId, params) {
   if (toolId === "xml") {
     return {
       indent: ["2", "4", "tab"].includes(value.indent) ? value.indent : "2",
+    };
+  }
+  if (toolId === "sql") {
+    return {
+      uppercase: value.uppercase !== false && value.uppercase !== "false",
+      indent: ["2", "4", "tab"].includes(value.indent) ? value.indent : "2",
+    };
+  }
+  if (toolId === "markdown") {
+    return {};
+  }
+  if (toolId === "yaml" || toolId === "toml") {
+    return {
+      mode: value.mode === "fromJson" ? "fromJson" : "toJson",
     };
   }
   return {

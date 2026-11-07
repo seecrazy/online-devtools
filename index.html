@@ -45,6 +45,10 @@
       <a class="tool-link" href="#tool-csv" data-tool-id="csv">CSV</a>
       <a class="tool-link" href="#tool-jsonts" data-tool-id="jsonts">JSON → TS</a>
       <a class="tool-link" href="#tool-xml" data-tool-id="xml">XML</a>
+      <a class="tool-link" href="#tool-sql" data-tool-id="sql">SQL</a>
+      <a class="tool-link" href="#tool-markdown" data-tool-id="markdown">Markdown</a>
+      <a class="tool-link" href="#tool-yaml" data-tool-id="yaml">YAML</a>
+      <a class="tool-link" href="#tool-toml" data-tool-id="toml">TOML</a>
       <p class="nav-group">速查手册</p>
       <a class="tool-link" href="#tool-http" data-tool-id="http">HTTP 状态码</a>
       <a class="tool-link" href="#tool-mime" data-tool-id="mime">MIME Type</a>
@@ -628,6 +632,119 @@
             <h3>输出</h3>
             <pre id="xml-output" class="output" tabindex="0"></pre>
             <p id="xml-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-sql" class="tool-panel" aria-labelledby="sql-title">
+        <div class="tool-heading">
+          <h2 id="sql-title">SQL 格式化</h2>
+          <p>按主要关键字分行缩进；字符串字面量内容不参与关键字识别。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="sql-input">SQL</label>
+            <textarea id="sql-input" class="code-input" spellcheck="false" aria-describedby="sql-status"></textarea>
+            <div class="controls">
+              <label for="sql-indent">缩进</label>
+              <select id="sql-indent">
+                <option value="2">2 空格</option>
+                <option value="4">4 空格</option>
+                <option value="tab">Tab</option>
+              </select>
+              <label><input id="sql-uppercase" type="checkbox" checked> 关键字大写</label>
+              <button class="button secondary" type="button" data-copy="#sql-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#sql-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="sql">清空</button>
+              <button class="button secondary" type="button" data-sample="sql">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="sql-output" class="output" tabindex="0"></pre>
+            <p id="sql-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-markdown" class="tool-panel" aria-labelledby="markdown-title">
+        <div class="tool-heading">
+          <h2 id="markdown-title">Markdown → HTML</h2>
+          <p>本地渲染常用 Markdown 语法，输出按纯文本展示。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="markdown-input">Markdown</label>
+            <textarea id="markdown-input" class="code-input" spellcheck="false" aria-describedby="markdown-status"></textarea>
+            <div class="controls">
+              <button class="button secondary" type="button" data-copy="#markdown-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#markdown-output">复制 HTML</button>
+              <button class="button secondary" type="button" data-clear="markdown">清空</button>
+              <button class="button secondary" type="button" data-sample="markdown">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>HTML</h3>
+            <pre id="markdown-output" class="output" tabindex="0"></pre>
+            <p id="markdown-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-yaml" class="tool-panel" aria-labelledby="yaml-title">
+        <div class="tool-heading">
+          <h2 id="yaml-title">YAML ↔ JSON</h2>
+          <p>支持常用配置子集：嵌套映射、序列、标量、注释、块标量与一层行内集合。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="yaml-input">输入</label>
+            <textarea id="yaml-input" class="code-input" spellcheck="false" aria-describedby="yaml-status"></textarea>
+            <div class="controls">
+              <label for="yaml-mode">方向</label>
+              <select id="yaml-mode">
+                <option value="toJson">YAML → JSON</option>
+                <option value="fromJson">JSON → YAML</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#yaml-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#yaml-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="yaml">清空</button>
+              <button class="button secondary" type="button" data-sample="yaml">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="yaml-output" class="output" tabindex="0"></pre>
+            <p id="yaml-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-toml" class="tool-panel" aria-labelledby="toml-title">
+        <div class="tool-heading">
+          <h2 id="toml-title">TOML ↔ JSON</h2>
+          <p>支持常用配置子集：表、数组表、点号键、数组与行内表。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="toml-input">输入</label>
+            <textarea id="toml-input" class="code-input" spellcheck="false" aria-describedby="toml-status"></textarea>
+            <div class="controls">
+              <label for="toml-mode">方向</label>
+              <select id="toml-mode">
+                <option value="toJson">TOML → JSON</option>
+                <option value="fromJson">JSON → TOML</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#toml-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#toml-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="toml">清空</button>
+              <button class="button secondary" type="button" data-sample="toml">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="toml-output" class="output" tabindex="0"></pre>
+            <p id="toml-status" class="status" role="status" aria-live="polite"></p>
           </div>
         </div>
       </section>
