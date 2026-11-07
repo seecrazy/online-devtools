@@ -2,7 +2,7 @@
 
 ## 当前结论
 
-v1 原有五类工具与 v1.1 新增五类工具的核心逻辑已经完成，并通过 22 个 Node 自动化测试。浏览器端手工验收和性能实测尚未执行。
+v1 原有五类工具、v1.1 新增五类工具和 v1.2 四类联调排查工具的核心逻辑已经完成，并通过 30 个 Node 自动化测试。浏览器端手工验收和性能实测尚未执行。
 
 ## 自动化测试
 
@@ -15,8 +15,8 @@ node --test
 
 最新结果：
 
-- 测试总数：22
-- 通过：22
+- 测试总数：30
+- 通过：30
 - 失败：0
 - 覆盖范围：
   - JSON 格式化、压缩与错误提示
@@ -34,6 +34,10 @@ node --test
   - SHA-256 摘要计算
   - HTTP 与 MIME 速查搜索
   - URL 状态编码与解码
+  - JWT Header / Payload / Signature 解码与时间状态
+  - 文本与 JSON Diff
+  - Text ↔ Hex 与 Latin-1 乱码修复
+  - HTML Entity 编解码
 
 语法检查：
 
@@ -177,6 +181,38 @@ node --check assets/regex-worker.js
 - [ ] 搜索 `png` 可定位 `image/png`。
 - [ ] 搜索 `application/json` 可定位 `.json`。
 - [ ] MIME Type 支持一键复制。
+
+## v1.2 手工验收清单
+
+### JWT 解析器
+
+- [ ] 可解析 Base64URL 编码的 header 和 payload。
+- [ ] Header、Payload、Signature 分区展示。
+- [ ] `iat`、`exp`、`nbf` 显示为可读时间。
+- [ ] 过期或未生效状态提示正确。
+- [ ] 非法 JWT 显示可读错误。
+- [ ] 页面明确提示“不验证签名”。
+
+### Diff 工具
+
+- [ ] 文本行级 Diff 可用。
+- [ ] JSON 模式先格式化再对比。
+- [ ] 新增、删除、未变化行标记正确。
+- [ ] 差异行数统计正确。
+
+### 字符编码工具
+
+- [ ] Text 转 Hex 可用。
+- [ ] Hex 转 Text 可用。
+- [ ] UTF-8 / Latin-1 乱码修复可用。
+- [ ] 非法 Hex 显示错误。
+
+### HTML Entity 工具
+
+- [ ] HTML encode 可用。
+- [ ] HTML decode 可用。
+- [ ] 命名实体与数字实体可用。
+- [ ] 输出按纯文本渲染。
 
 ## 当前限制
 

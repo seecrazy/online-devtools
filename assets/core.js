@@ -9,6 +9,10 @@ export const TOOL_IDS = [
   "hash",
   "http",
   "mime",
+  "jwt",
+  "diff",
+  "encoding",
+  "entity",
 ];
 export const MAX_INPUT_LENGTH = 1024 * 1024;
 export const MAX_URL_STATE_LENGTH = 64 * 1024;
@@ -961,6 +965,263 @@ export function searchMimeTypes(query = "") {
   return { results, total: MIME_TYPES.length };
 }
 
+export function base64UrlEncode(value) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  return utf8BytesToBase64(bytes, { urlSafe: true });
+}
+
+export function base64UrlDecode(value) {
+  return new TextDecoder("utf-8", { fatal: true }).decode(base64ToUtf8Bytes(value, { urlSafe: true }));
+}
+
+export function parseJwt(token) {
+  const sizeError = checkInputSize(token);
+  if (sizeError) throw new Error(sizeError.error.message);
+
+  const parts = token.trim().split(".");
+  if (parts.length !== 3 || parts.some((part) => !part)) {
+    throw new Error("JWT 必须由 header.payload.signature 三段组成。");
+  }
+
+  const decodeJson = (part, name) => {
+    try {
+      return JSON.parse(base64UrlDecode(part));
+    } catch (error) {
+      throw new Error(`无法解析 ${name}：${error.message}`);
+    }
+  };
+
+  const header = decodeJson(parts[0], "header");
+  const payload = decodeJson(parts[1], "payload");
+  if (!header || typeof header !== "object" || Array.isArray(header)) {
+    throw new Error("JWT header 必须是 JSON 对象。");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("JWT payload 必须是 JSON 对象。");
+  }
+  const signature = parts[2];
+
+  const now = Math.floor(Date.now() / 1000);
+  const timeFields = {};
+  for (const [field, label] of [["iat", "签发时间"], ["nbf", "生效时间"], ["exp", "过期时间"]]) {
+    const value = payload?.[field];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      timeFields[field] = {
+        label,
+        unix: value,
+        iso: new Date(value * 1000).toISOString(),
+        state: field === "nbf" ? (value > now ? "not-yet-valid" : "valid") : field === "exp" ? (value <= now ? "expired" : "valid") : "valid",
+      };
+    }
+  }
+
+  return {
+    header,
+    payload,
+    signature,
+    timeFields,
+    status: timeFields.exp?.state === "expired" || timeFields.nbf?.state === "not-yet-valid" ? "invalid-time" : "valid-time",
+  };
+}
+
+export function processJwt(token) {
+  if (!token.trim()) return idle();
+  try {
+    const parsed = parseJwt(token);
+    return success(JSON.stringify(parsed, null, 2), { extra: parsed });
+  } catch (error) {
+    return failure(error.message, { tool: "jwt" });
+  }
+}
+
+function diffLines(oldText, newText) {
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  const rows = [];
+  let oldIndex = 0;
+  let newIndex = 0;
+
+  while (oldIndex < oldLines.length || newIndex < newLines.length) {
+    if (oldIndex < oldLines.length && newIndex < newLines.length && oldLines[oldIndex] === newLines[newIndex]) {
+      rows.push({ type: "same", text: oldLines[oldIndex] });
+      oldIndex += 1;
+      newIndex += 1;
+      continue;
+    }
+
+    const oldCandidate = oldIndex < oldLines.length ? oldLines[oldIndex] : null;
+    const matchIndex = oldCandidate === null ? -1 : newLines.indexOf(oldCandidate, newIndex);
+    if (matchIndex >= 0) {
+      while (newIndex < matchIndex) {
+        rows.push({ type: "added", text: newLines[newIndex] });
+        newIndex += 1;
+      }
+      continue;
+    }
+
+    const newCandidate = newIndex < newLines.length ? newLines[newIndex] : null;
+    const reverseMatchIndex = newCandidate === null ? -1 : oldLines.indexOf(newCandidate, oldIndex + 1);
+    if (reverseMatchIndex >= 0) {
+      while (oldIndex < reverseMatchIndex) {
+        rows.push({ type: "removed", text: oldLines[oldIndex] });
+        oldIndex += 1;
+      }
+      continue;
+    }
+
+    if (oldIndex < oldLines.length) {
+      rows.push({ type: "removed", text: oldLines[oldIndex] });
+      oldIndex += 1;
+    }
+    if (newIndex < newLines.length) {
+      rows.push({ type: "added", text: newLines[newIndex] });
+      newIndex += 1;
+    }
+  }
+
+  return rows;
+}
+
+export function processDiff(oldText, newText, params = {}) {
+  const mode = params.mode === "json" ? "json" : "text";
+  if (!oldText && !newText) return idle();
+
+  const oldSizeError = checkInputSize(oldText);
+  if (oldSizeError) return oldSizeError;
+  const newSizeError = checkInputSize(newText);
+  if (newSizeError) return newSizeError;
+
+  let left = oldText;
+  let right = newText;
+  if (mode === "json") {
+    try {
+      left = JSON.stringify(JSON.parse(oldText), null, 2);
+      right = JSON.stringify(JSON.parse(newText), null, 2);
+    } catch (error) {
+      return failure(error.message, { tool: "diff" });
+    }
+  }
+
+  const rows = diffLines(left, right);
+  const extra = {
+    rows,
+    added: rows.filter((row) => row.type === "added").length,
+    removed: rows.filter((row) => row.type === "removed").length,
+    same: rows.filter((row) => row.type === "same").length,
+  };
+  return success(rows.map((row) => `${row.type === "added" ? "+" : row.type === "removed" ? "-" : " "} ${row.text}`).join("\n"), { extra });
+}
+
+export function hexEncode(value) {
+  return [...new TextEncoder().encode(value)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join(" ");
+}
+
+export function hexDecode(value) {
+  const clean = value.replace(/0x/gi, "").replace(/[\s,]/g, "");
+  if (!clean) return "";
+  if (!/^[0-9a-f]+$/i.test(clean) || clean.length % 2 !== 0) {
+    throw new Error("Hex 输入无效，必须由成对的十六进制字符组成。");
+  }
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+export function latin1ToUtf8(value) {
+  const invalidIndex = [...value].findIndex((char) => char.charCodeAt(0) > 0xff);
+  if (invalidIndex >= 0) {
+    throw new Error(`Latin-1 输入在第 ${invalidIndex + 1} 个字符处包含超出 0xFF 的字符。`);
+  }
+  const bytes = Uint8Array.from(value, (char) => char.charCodeAt(0));
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+export function utf8ToLatin1(value) {
+  const bytes = new TextEncoder().encode(value);
+  return Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+}
+
+export function processEncoding(input, params = {}) {
+  const mode = ["hexDecode", "latin1ToUtf8", "utf8ToLatin1"].includes(params.mode) ? params.mode : "hexEncode";
+  if (!input) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  try {
+    if (mode === "hexEncode") return success(hexEncode(input), { mode });
+    if (mode === "hexDecode") return success(hexDecode(input), { mode });
+    if (mode === "latin1ToUtf8") return success(latin1ToUtf8(input), { mode });
+    return success(utf8ToLatin1(input), { mode });
+  } catch (error) {
+    return failure(error.message, { tool: "encoding" });
+  }
+}
+
+const HTML_NAMED_ENTITIES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+  "©": "&copy;",
+  "®": "&reg;",
+  "™": "&trade;",
+  "€": "&euro;",
+  "£": "&pound;",
+  "¥": "&yen;",
+  "…": "&hellip;",
+  "←": "&larr;",
+  "→": "&rarr;",
+};
+
+export function htmlEntityEncode(value, { numeric = false } = {}) {
+  if (numeric) {
+    return [...value].map((char) => {
+      const codePoint = char.codePointAt(0);
+      if (codePoint > 127 || "&<>\"'".includes(char)) return `&#${codePoint};`;
+      return char;
+    }).join("");
+  }
+  return [...value].map((char) => HTML_NAMED_ENTITIES[char] || (char.codePointAt(0) > 127 ? `&#${char.codePointAt(0)};` : char)).join("");
+}
+
+export function htmlEntityDecode(value) {
+  const textarea = globalThis.document?.createElement("textarea");
+  if (textarea) {
+    textarea.innerHTML = value;
+    return textarea.value;
+  }
+
+  return value
+    .replace(/&([a-z]+);/gi, (match, name) => {
+      const char = Object.entries(HTML_NAMED_ENTITIES).find(([, entity]) => entity === `&${name};`)?.[0];
+      return char ?? match;
+    })
+    .replace(/&#(\d+);/g, (_, code) => {
+      const number = Number(code);
+      return number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (match, code) => {
+      const number = Number.parseInt(code, 16);
+      return number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : match;
+    });
+}
+
+export function processHtmlEntity(input, params = {}) {
+  const mode = params.mode === "decode" ? "decode" : "encode";
+  if (!input) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  try {
+    return success(mode === "encode" ? htmlEntityEncode(input, { numeric: params.numeric === true }) : htmlEntityDecode(input), { mode });
+  } catch (error) {
+    return failure(error.message, { tool: "entity" });
+  }
+}
+
 export function createDefaultState(toolId = "json") {
   if (!TOOL_IDS.includes(toolId)) toolId = "json";
   const states = {
@@ -974,6 +1235,10 @@ export function createDefaultState(toolId = "json") {
     hash: { toolId, input: "", params: { algorithm: "SHA-256", uppercase: false } },
     http: { toolId, input: "", params: {} },
     mime: { toolId, input: "", params: {} },
+    jwt: { toolId, input: "", params: {} },
+    diff: { toolId, input: "", params: { mode: "text" }, input2: "" },
+    encoding: { toolId, input: "", params: { mode: "hexEncode" } },
+    entity: { toolId, input: "", params: { mode: "encode", numeric: false } },
   };
   return structuredClone(states[toolId]);
 }
@@ -1024,6 +1289,22 @@ function normalizeParams(toolId, params) {
   if (toolId === "http" || toolId === "mime") {
     return {};
   }
+  if (toolId === "jwt") return {};
+  if (toolId === "diff") {
+    return {
+      mode: value.mode === "json" ? "json" : "text",
+      input2: typeof value.input2 === "string" ? value.input2 : "",
+    };
+  }
+  if (toolId === "encoding") {
+    return { mode: ["hexDecode", "latin1ToUtf8", "utf8ToLatin1"].includes(value.mode) ? value.mode : "hexEncode" };
+  }
+  if (toolId === "entity") {
+    return {
+      mode: value.mode === "decode" ? "decode" : "encode",
+      numeric: value.numeric === true || value.numeric === "true",
+    };
+  }
   return {
     timezone: TIME_ZONES.includes(value.timezone) ? value.timezone : "system",
     previewCount: [5, 10].includes(Number(value.previewCount)) ? Number(value.previewCount) : 5,
@@ -1040,8 +1321,13 @@ export function normalizeState(rawState) {
   if (typeof rawState.input !== "string" || rawState.input.length > MAX_URL_STATE_LENGTH) {
     throw new Error("输入内容无效或超出分享长度限制。");
   }
+  if (typeof rawState.input2 === "string" && rawState.input2.length > MAX_URL_STATE_LENGTH) {
+    throw new Error("第二段输入内容超出分享长度限制。");
+  }
   const params = normalizeParams(rawState.toolId, rawState.params);
-  return { version: 1, toolId: rawState.toolId, input: rawState.input, params };
+  const normalized = { version: 1, toolId: rawState.toolId, input: rawState.input, params };
+  if (rawState.toolId === "diff" && typeof rawState.input2 === "string") normalized.input2 = rawState.input2;
+  return normalized;
 }
 
 export function encodeState(state) {

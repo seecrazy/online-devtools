@@ -37,6 +37,10 @@
       <p class="nav-group">校验调试</p>
       <a class="tool-link" href="#tool-regex" data-tool-id="regex">正则</a>
       <a class="tool-link" href="#tool-cron" data-tool-id="cron">Cron</a>
+      <a class="tool-link" href="#tool-jwt" data-tool-id="jwt">JWT</a>
+      <a class="tool-link" href="#tool-diff" data-tool-id="diff">Diff</a>
+      <a class="tool-link" href="#tool-encoding" data-tool-id="encoding">字符编码</a>
+      <a class="tool-link" href="#tool-entity" data-tool-id="entity">HTML Entity</a>
       <p class="nav-group">速查手册</p>
       <a class="tool-link" href="#tool-http" data-tool-id="http">HTTP 状态码</a>
       <a class="tool-link" href="#tool-mime" data-tool-id="mime">MIME Type</a>
@@ -413,6 +417,121 @@
           <input id="mime-input" class="line-input" placeholder="png / json / application/pdf" aria-describedby="mime-status">
           <p id="mime-status" class="status" role="status" aria-live="polite"></p>
           <div id="mime-results" class="lookup-results"></div>
+        </div>
+      </section>
+
+      <section id="tool-jwt" class="tool-panel" aria-labelledby="jwt-title">
+        <div class="tool-heading">
+          <h2 id="jwt-title">JWT 解析器</h2>
+          <p>本地解码 Header、Payload 和 Signature；本工具不验证签名。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="jwt-input">JWT</label>
+            <textarea id="jwt-input" class="code-input" spellcheck="false" aria-describedby="jwt-status"></textarea>
+            <div class="controls">
+              <button class="button secondary" type="button" data-copy="#jwt-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#jwt-output">复制解析结果</button>
+              <button class="button secondary" type="button" data-clear="jwt">清空</button>
+              <button class="button secondary" type="button" data-sample="jwt">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>解析结果</h3>
+            <pre id="jwt-output" class="output" tabindex="0"></pre>
+            <div id="jwt-details" class="jwt-details" aria-label="JWT 分区解析结果"></div>
+            <p id="jwt-status" class="status" role="status" aria-live="polite"></p>
+            <p class="engine-note">安全提示：本工具只做本地解码和展示，不验证签名，不判断 JWT 是否可信。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-diff" class="tool-panel" aria-labelledby="diff-title">
+        <div class="tool-heading">
+          <h2 id="diff-title">文本 / JSON Diff</h2>
+          <p>对比两段文本，JSON 模式会先格式化再比较。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="diff-input">原文本</label>
+            <textarea id="diff-input" class="code-input" spellcheck="false"></textarea>
+            <label class="field-label" for="diff-input2">新文本</label>
+            <textarea id="diff-input2" class="code-input" spellcheck="false"></textarea>
+            <div class="controls">
+              <label for="diff-mode">模式</label>
+              <select id="diff-mode">
+                <option value="text">文本</option>
+                <option value="json">JSON</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#diff-rows">复制 Diff</button>
+              <button class="button secondary" type="button" data-clear="diff">清空</button>
+              <button class="button secondary" type="button" data-sample="diff">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Diff 结果</h3>
+            <div id="diff-rows" class="diff-rows" tabindex="0"></div>
+            <p id="diff-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-encoding" class="tool-panel" aria-labelledby="encoding-title">
+        <div class="tool-heading">
+          <h2 id="encoding-title">字符编码与乱码修复</h2>
+          <p>支持 Text ↔ Hex，以及常见 UTF-8 / Latin-1 乱码修复。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="encoding-input">输入</label>
+            <textarea id="encoding-input" class="code-input" spellcheck="false"></textarea>
+            <div class="controls">
+              <label for="encoding-mode">转换</label>
+              <select id="encoding-mode">
+                <option value="hexEncode">Text → Hex</option>
+                <option value="hexDecode">Hex → Text</option>
+                <option value="latin1ToUtf8">Latin-1 → UTF-8</option>
+                <option value="utf8ToLatin1">UTF-8 → Latin-1</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#encoding-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="encoding">清空</button>
+              <button class="button secondary" type="button" data-sample="encoding">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="encoding-output" class="output" tabindex="0"></pre>
+            <p id="encoding-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-entity" class="tool-panel" aria-labelledby="entity-title">
+        <div class="tool-heading">
+          <h2 id="entity-title">HTML Entity 编解码</h2>
+          <p>支持常用命名实体与数字实体，输出按纯文本展示。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="entity-input">输入</label>
+            <textarea id="entity-input" class="code-input" spellcheck="false"></textarea>
+            <div class="controls">
+              <label for="entity-mode">模式</label>
+              <select id="entity-mode">
+                <option value="encode">编码</option>
+                <option value="decode">解码</option>
+              </select>
+              <label><input id="entity-numeric" type="checkbox"> 数字实体</label>
+              <button class="button secondary" type="button" data-copy="#entity-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="entity">清空</button>
+              <button class="button secondary" type="button" data-sample="entity">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="entity-output" class="output" tabindex="0"></pre>
+            <p id="entity-status" class="status" role="status" aria-live="polite"></p>
+          </div>
         </div>
       </section>
     </main>

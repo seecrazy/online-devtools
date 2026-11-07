@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  base64UrlEncode,
   computeRegex,
   convertTimestamp,
   decodeState,
@@ -20,6 +21,10 @@ import {
   processJson,
   stateFromHash,
   stateToHash,
+  processDiff,
+  processEncoding,
+  processHtmlEntity,
+  processJwt,
 } from "../assets/core.js";
 
 test("JSON is formatted and minified", () => {
@@ -232,4 +237,63 @@ test("v1.1 tool states survive URL hash encoding", () => {
     params: { mode: "parse" },
   };
   assert.deepEqual(stateFromHash(stateToHash(state)), state);
+});
+
+test("JWT parser decodes header and payload", () => {
+  const header = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = base64UrlEncode(JSON.stringify({ sub: "devtools", iat: 1, exp: 9999999999 }));
+  const result = processJwt(`${header}.${payload}.signature`);
+  assert.equal(result.status, "success");
+  assert.equal(result.extra.header.alg, "HS256");
+  assert.equal(result.extra.payload.sub, "devtools");
+  assert.equal(result.extra.status, "valid-time");
+});
+
+test("JWT parser reports invalid tokens", () => {
+  const result = processJwt("not.a.jwt");
+  assert.equal(result.status, "error");
+});
+
+test("diff tool reports added and removed lines", () => {
+  const result = processDiff("a\nb\nc", "a\nx\nc", { mode: "text" });
+  assert.equal(result.status, "success");
+  assert.equal(result.extra.added, 1);
+  assert.equal(result.extra.removed, 1);
+  assert.match(result.output, /\+ x/);
+  assert.match(result.output, /- b/);
+});
+
+test("diff tool formats JSON before comparing", () => {
+  const result = processDiff('{"a":1}', '{ "a" : 1 }', { mode: "json" });
+  assert.equal(result.status, "success");
+  assert.equal(result.extra.added + result.extra.removed, 0);
+});
+
+test("encoding tool converts text and hex", () => {
+  const encoded = processEncoding("A", { mode: "hexEncode" });
+  assert.equal(encoded.output, "41");
+  assert.equal(processEncoding(encoded.output, { mode: "hexDecode" }).output, "A");
+});
+
+test("encoding tool repairs Latin-1 mojibake", () => {
+  const mojibake = "\u00e5\u00bc\u0080\u00e5\u008f\u0091\u00e8\u0080\u0085";
+  const result = processEncoding(mojibake, { mode: "latin1ToUtf8" });
+  assert.equal(result.status, "success");
+  assert.equal(result.output, "开发者");
+});
+
+test("HTML entity tool encodes and decodes safely", () => {
+  const text = "<div>开发者</div>";
+  const encoded = processHtmlEntity(text, { mode: "encode", numeric: false });
+  assert.equal(encoded.output, "&lt;div&gt;&#24320;&#21457;&#32773;&lt;/div&gt;");
+  assert.equal(processHtmlEntity(encoded.output, { mode: "decode" }).output, text);
+});
+
+test("HTML entity tool handles numeric entities and invalid hex", () => {
+  const encoded = processHtmlEntity("<开", { mode: "encode", numeric: true });
+  assert.equal(encoded.output, "&#60;&#24320;");
+  assert.equal(processHtmlEntity(encoded.output, { mode: "decode" }).output, "<开");
+  assert.equal(processHtmlEntity("&#x5f00;", { mode: "decode" }).output, "开");
+  assert.equal(processHtmlEntity("&#x110000;", { mode: "decode" }).output, "&#x110000;");
+  assert.equal(processHtmlEntity("&lt", { mode: "decode" }).status, "success");
 });

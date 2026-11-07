@@ -8,6 +8,10 @@ import {
   processHash,
   processBase64,
   processCron,
+  processDiff,
+  processEncoding,
+  processHtmlEntity,
+  processJwt,
   processJson,
   processUrl,
   processUuid,
@@ -97,6 +101,32 @@ const dom = {
     results: document.querySelector("#mime-results"),
     status: document.querySelector("#mime-status"),
   },
+  jwt: {
+    input: document.querySelector("#jwt-input"),
+    output: document.querySelector("#jwt-output"),
+    details: document.querySelector("#jwt-details"),
+    status: document.querySelector("#jwt-status"),
+  },
+  diff: {
+    input: document.querySelector("#diff-input"),
+    input2: document.querySelector("#diff-input2"),
+    mode: document.querySelector("#diff-mode"),
+    rows: document.querySelector("#diff-rows"),
+    status: document.querySelector("#diff-status"),
+  },
+  encoding: {
+    input: document.querySelector("#encoding-input"),
+    mode: document.querySelector("#encoding-mode"),
+    output: document.querySelector("#encoding-output"),
+    status: document.querySelector("#encoding-status"),
+  },
+  entity: {
+    input: document.querySelector("#entity-input"),
+    mode: document.querySelector("#entity-mode"),
+    numeric: document.querySelector("#entity-numeric"),
+    output: document.querySelector("#entity-output"),
+    status: document.querySelector("#entity-status"),
+  },
 };
 
 const states = Object.fromEntries(TOOL_IDS.map((toolId) => [toolId, createDefaultState(toolId)]));
@@ -133,6 +163,23 @@ const samples = {
   hash: {
     input: "Online DevTools",
     params: { algorithm: "SHA-256", uppercase: false },
+  },
+  jwt: {
+    input: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZXZ0b29scyIsInJvbGUiOiJkZXZlbG9wZXIiLCJpYXQiOjE3NjQ1MDAwMDAsImV4cCI6MTg5MzQ1NjAwMH0.local-signature-not-verified",
+    params: {},
+  },
+  diff: {
+    input: "a\nb\nc",
+    input2: "a\nx\nc",
+    params: { mode: "text" },
+  },
+  encoding: {
+    input: "开发者工具箱",
+    params: { mode: "hexEncode" },
+  },
+  entity: {
+    input: "<div>Online DevTools</div>",
+    params: { mode: "encode", numeric: false },
   },
 };
 
@@ -273,6 +320,19 @@ function readStateFromDom(toolId = activeTool) {
     state.input = dom.http.input.value;
   } else if (toolId === "mime") {
     state.input = dom.mime.input.value;
+  } else if (toolId === "jwt") {
+    state.input = dom.jwt.input.value;
+  } else if (toolId === "diff") {
+    state.input = dom.diff.input.value;
+    state.input2 = dom.diff.input2.value;
+    state.params.mode = dom.diff.mode.value;
+  } else if (toolId === "encoding") {
+    state.input = dom.encoding.input.value;
+    state.params.mode = dom.encoding.mode.value;
+  } else if (toolId === "entity") {
+    state.input = dom.entity.input.value;
+    state.params.mode = dom.entity.mode.value;
+    state.params.numeric = dom.entity.numeric.checked;
   }
   return state;
 }
@@ -315,6 +375,19 @@ function writeStateToDom(state) {
     dom.http.input.value = state.input;
   } else if (state.toolId === "mime") {
     dom.mime.input.value = state.input;
+  } else if (state.toolId === "jwt") {
+    dom.jwt.input.value = state.input;
+  } else if (state.toolId === "diff") {
+    dom.diff.input.value = state.input;
+    dom.diff.input2.value = state.input2 || "";
+    dom.diff.mode.value = state.params.mode;
+  } else if (state.toolId === "encoding") {
+    dom.encoding.input.value = state.input;
+    dom.encoding.mode.value = state.params.mode;
+  } else if (state.toolId === "entity") {
+    dom.entity.input.value = state.input;
+    dom.entity.mode.value = state.params.mode;
+    dom.entity.numeric.checked = state.params.numeric;
   }
 }
 
@@ -533,6 +606,108 @@ function renderMimeTypes(query) {
   setStatus(dom.mime.status, `显示 ${results.length} / ${total} 条记录。`, results.length ? "success" : "error");
 }
 
+function renderJwt(result) {
+  dom.jwt.details.innerHTML = "";
+  if (result.status === "idle") {
+    setOutput(dom.jwt.output, "");
+    setStatus(dom.jwt.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.jwt.output, "");
+    setStatus(dom.jwt.status, result.error.message, "error");
+    return;
+  }
+
+  setOutput(dom.jwt.output, result.output);
+  const sections = [
+    { title: "Header", body: JSON.stringify(result.extra.header, null, 2) },
+    { title: "Payload", body: JSON.stringify(result.extra.payload, null, 2) },
+    { title: "Signature", body: result.extra.signature },
+  ];
+
+  for (const { title, body } of sections) {
+    const item = document.createElement("article");
+    item.className = "jwt-section";
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    const pre = document.createElement("pre");
+    pre.textContent = body || "(empty)";
+    item.append(heading, pre);
+    dom.jwt.details.append(item);
+  }
+
+  for (const timeField of Object.values(result.extra.timeFields)) {
+    const item = document.createElement("p");
+    item.className = "guide-note";
+    item.textContent = `${timeField.label}: ${timeField.iso}（${timeField.state}）`;
+    dom.jwt.details.append(item);
+  }
+  const timeFields = result.extra.timeFields;
+  const status = timeFields.exp?.state === "expired" ? "JWT 已过期。" :
+    timeFields.nbf?.state === "not-yet-valid" ? "JWT 尚未生效。" : "时间字段有效。";
+  setStatus(dom.jwt.status, status, result.extra.status === "valid-time" ? "success" : "error");
+}
+
+function renderDiff(result) {
+  dom.diff.rows.innerHTML = "";
+  if (result.status === "idle") {
+    setStatus(dom.diff.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setStatus(dom.diff.status, result.error.message, "error");
+    return;
+  }
+
+  for (const row of result.extra.rows) {
+    const line = document.createElement("div");
+    line.className = `diff-row diff-${row.type}`;
+    const marker = document.createElement("span");
+    marker.className = "diff-marker";
+    marker.textContent = row.type === "added" ? "+" : row.type === "removed" ? "-" : " ";
+    const text = document.createElement("span");
+    text.textContent = row.text || " ";
+    line.append(marker, text);
+    dom.diff.rows.append(line);
+  }
+  setStatus(
+    dom.diff.status,
+    `新增 ${result.extra.added} 行，删除 ${result.extra.removed} 行，相同 ${result.extra.same} 行。`,
+    result.extra.added || result.extra.removed ? "success" : "neutral",
+  );
+}
+
+function renderEncoding(result) {
+  if (result.status === "idle") {
+    setOutput(dom.encoding.output, "");
+    setStatus(dom.encoding.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.encoding.output, "");
+    setStatus(dom.encoding.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.encoding.output, result.output);
+  setStatus(dom.encoding.status, "转换成功。", "success");
+}
+
+function renderEntity(result) {
+  if (result.status === "idle") {
+    setOutput(dom.entity.output, "");
+    setStatus(dom.entity.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.entity.output, "");
+    setStatus(dom.entity.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.entity.output, result.output);
+  setStatus(dom.entity.status, "转换成功。", "success");
+}
+
 let regexWorker = null;
 let regexRunId = 0;
 let regexTimeoutId = null;
@@ -679,6 +854,14 @@ async function processToolNow() {
     renderHttpStatuses(state.input);
   } else if (state.toolId === "mime") {
     renderMimeTypes(state.input);
+  } else if (state.toolId === "jwt") {
+    renderJwt(processJwt(state.input));
+  } else if (state.toolId === "diff") {
+    renderDiff(processDiff(state.input, state.input2 || "", state.params));
+  } else if (state.toolId === "encoding") {
+    renderEncoding(processEncoding(state.input, state.params));
+  } else if (state.toolId === "entity") {
+    renderEntity(processHtmlEntity(state.input, state.params));
   }
 }
 
@@ -783,7 +966,7 @@ function handleDocumentClick(event) {
   }
   if (button.dataset.copy) {
     const target = document.querySelector(button.dataset.copy);
-    copyToClipboard(target.value ?? target.textContent ?? "", button);
+    copyToClipboard(target.value ?? target.innerText ?? target.textContent ?? "", button);
     return;
   }
   if (button.dataset.clear) {
@@ -797,7 +980,7 @@ function handleDocumentClick(event) {
   }
   if (button.dataset.sample) {
     const toolId = button.dataset.sample;
-    states[toolId] = { ...samples[toolId], toolId, version: 1 };
+    states[toolId] = { ...structuredClone(samples[toolId]), toolId, version: 1 };
     writeStateToDom(states[toolId]);
     activateTool(toolId);
     processToolNow();
@@ -827,6 +1010,10 @@ function handleDocumentInput(event) {
     hash: ["hash-input", "hash-algorithm", "hash-uppercase"],
     http: ["http-input"],
     mime: ["mime-input"],
+    jwt: ["jwt-input"],
+    diff: ["diff-input", "diff-input2", "diff-mode"],
+    encoding: ["encoding-input", "encoding-mode"],
+    entity: ["entity-input", "entity-mode", "entity-numeric"],
   }).find(([, ids]) => ids.includes(control.id))?.[0];
 
   if (!toolId) return;

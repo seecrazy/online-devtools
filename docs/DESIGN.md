@@ -231,6 +231,20 @@ Online DevTools 的定位从早期的“在线代码运行 playground”调整�
    - Hex ↔ Text
    - 常见乱码说明
    - UTF-8 / Latin-1 转换
+4. **HTML Entity 编解码**
+   - HTML encode / decode
+   - 支持命名实体
+   - 支持数字实体
+   - 防止输出直接作为 HTML 注入
+
+#### v1.2 交互细节
+
+1. JWT 输入后自动解析 header、payload 和 signature。
+2. JWT 时间字段 `iat`、`exp`、`nbf` 显示为可读时间，并标注是否已过期或尚未生效。
+3. Diff 支持文本行级对比与 JSON 格式化后对比。
+4. Diff 输出区分新增、删除、未变化，并显示差异行数。
+5. 编码工具支持源格式、目标格式和错误提示。
+6. HTML Entity 输出始终按文本渲染。
 
 #### v1.3 工具范围
 
