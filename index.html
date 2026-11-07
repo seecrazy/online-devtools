@@ -41,6 +41,10 @@
       <a class="tool-link" href="#tool-diff" data-tool-id="diff">Diff</a>
       <a class="tool-link" href="#tool-encoding" data-tool-id="encoding">字符编码</a>
       <a class="tool-link" href="#tool-entity" data-tool-id="entity">HTML Entity</a>
+      <p class="nav-group">数据转换</p>
+      <a class="tool-link" href="#tool-csv" data-tool-id="csv">CSV</a>
+      <a class="tool-link" href="#tool-jsonts" data-tool-id="jsonts">JSON → TS</a>
+      <a class="tool-link" href="#tool-xml" data-tool-id="xml">XML</a>
       <p class="nav-group">速查手册</p>
       <a class="tool-link" href="#tool-http" data-tool-id="http">HTTP 状态码</a>
       <a class="tool-link" href="#tool-mime" data-tool-id="mime">MIME Type</a>
@@ -531,6 +535,99 @@
             <h3>输出</h3>
             <pre id="entity-output" class="output" tabindex="0"></pre>
             <p id="entity-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-csv" class="tool-panel" aria-labelledby="csv-title">
+        <div class="tool-heading">
+          <h2 id="csv-title">CSV ↔ JSON</h2>
+          <p>本地解析 CSV 为 JSON，或将 JSON 对象数组导出为 CSV。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="csv-input">输入</label>
+            <textarea id="csv-input" class="code-input" spellcheck="false" aria-describedby="csv-status"></textarea>
+            <div class="controls">
+              <label for="csv-mode">方向</label>
+              <select id="csv-mode">
+                <option value="toJson">CSV → JSON</option>
+                <option value="fromJson">JSON → CSV</option>
+              </select>
+              <label for="csv-delimiter">分隔符</label>
+              <select id="csv-delimiter">
+                <option value=",">逗号</option>
+                <option value=";">分号</option>
+                <option value="tab">Tab</option>
+                <option value="|">竖线</option>
+              </select>
+              <label><input id="csv-header" type="checkbox" checked> 首行为表头</label>
+              <button class="button secondary" type="button" data-copy="#csv-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#csv-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="csv">清空</button>
+              <button class="button secondary" type="button" data-sample="csv">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="csv-output" class="output" tabindex="0"></pre>
+            <p id="csv-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-jsonts" class="tool-panel" aria-labelledby="jsonts-title">
+        <div class="tool-heading">
+          <h2 id="jsonts-title">JSON → TypeScript</h2>
+          <p>根据 JSON 数据推断并生成本地 interface 声明。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="jsonts-input">JSON</label>
+            <textarea id="jsonts-input" class="code-input" spellcheck="false" aria-describedby="jsonts-status"></textarea>
+            <div class="controls">
+              <label for="jsonts-root">根类型名</label>
+              <input id="jsonts-root" type="text" placeholder="Root">
+              <button class="button secondary" type="button" data-copy="#jsonts-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#jsonts-output">复制类型</button>
+              <button class="button secondary" type="button" data-clear="jsonts">清空</button>
+              <button class="button secondary" type="button" data-sample="jsonts">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>TypeScript</h3>
+            <pre id="jsonts-output" class="output" tabindex="0"></pre>
+            <p id="jsonts-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-xml" class="tool-panel" aria-labelledby="xml-title">
+        <div class="tool-heading">
+          <h2 id="xml-title">XML 校验与格式化</h2>
+          <p>检查标签配对与属性引号，并按缩进重新排版。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="xml-input">XML</label>
+            <textarea id="xml-input" class="code-input" spellcheck="false" aria-describedby="xml-status"></textarea>
+            <div class="controls">
+              <label for="xml-indent">缩进</label>
+              <select id="xml-indent">
+                <option value="2">2 空格</option>
+                <option value="4">4 空格</option>
+                <option value="tab">Tab</option>
+              </select>
+              <button class="button secondary" type="button" data-copy="#xml-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#xml-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="xml">清空</button>
+              <button class="button secondary" type="button" data-sample="xml">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="xml-output" class="output" tabindex="0"></pre>
+            <p id="xml-status" class="status" role="status" aria-live="polite"></p>
           </div>
         </div>
       </section>

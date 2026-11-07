@@ -13,6 +13,9 @@ export const TOOL_IDS = [
   "diff",
   "encoding",
   "entity",
+  "csv",
+  "jsonts",
+  "xml",
 ];
 export const MAX_INPUT_LENGTH = 1024 * 1024;
 export const MAX_URL_STATE_LENGTH = 64 * 1024;
@@ -1222,6 +1225,474 @@ export function processHtmlEntity(input, params = {}) {
   }
 }
 
+function resolveCsvDelimiter(delimiter) {
+  if (delimiter === "tab") return "\t";
+  if (delimiter === ";" || delimiter === "|") return delimiter;
+  return ",";
+}
+
+function parseCsvRows(text, delimiter) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  let line = 1;
+  let index = 0;
+
+  while (index < text.length) {
+    const char = text[index];
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[index + 1] === '"') {
+          field += '"';
+          index += 2;
+          continue;
+        }
+        inQuotes = false;
+        index += 1;
+        continue;
+      }
+      if (char === "\n") line += 1;
+      field += char;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' && field === "") {
+      inQuotes = true;
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      throw new Error(`CSV 第 ${line} 行：字段中出现未转义的引号。`);
+    }
+    if (char === delimiter) {
+      row.push(field);
+      field = "";
+      index += 1;
+      continue;
+    }
+    if (char === "\r") {
+      if (text[index + 1] === "\n") {
+        index += 1;
+        continue;
+      }
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      line += 1;
+      index += 1;
+      continue;
+    }
+    if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      line += 1;
+      index += 1;
+      continue;
+    }
+    field += char;
+    index += 1;
+  }
+
+  if (inQuotes) {
+    throw new Error(`CSV 第 ${line} 行：引号未闭合。`);
+  }
+  if (field !== "" || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function formatCsvCell(value, delimiter) {
+  if (/[",\r\n]/.test(value) || value.includes(delimiter)) {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+  return value;
+}
+
+export function csvToJson(text, params = {}) {
+  const delimiter = resolveCsvDelimiter(params.delimiter);
+  const rows = parseCsvRows(text, delimiter);
+  if (!rows.length) return idle();
+
+  const hasHeader = params.header !== false;
+  const headerRow = hasHeader ? rows[0] : rows[0].map((_, index) => `column_${index + 1}`);
+  const headers = headerRow.map((name, index) => name.trim() || `column_${index + 1}`);
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const records = [];
+
+  for (const [rowIndex, row] of dataRows.entries()) {
+    if (row.length !== headers.length) {
+      const displayLine = rowIndex + (hasHeader ? 2 : 1);
+      throw new Error(`CSV 第 ${displayLine} 行有 ${row.length} 列，表头需要 ${headers.length} 列。`);
+    }
+    const record = {};
+    for (const [columnIndex, header] of headers.entries()) {
+      record[header] = row[columnIndex];
+    }
+    records.push(record);
+  }
+  return success(JSON.stringify(records, null, 2), { mode: "toJson", delimiter });
+}
+
+export function jsonToCsv(text, params = {}) {
+  const delimiter = resolveCsvDelimiter(params.delimiter);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`JSON 解析失败：${error.message}`);
+  }
+
+  const records = Array.isArray(parsed) ? parsed : [parsed];
+  if (!records.length) return "";
+  if (records.some((record) => !record || typeof record !== "object" || Array.isArray(record))) {
+    throw new Error("JSON → CSV 输入必须是对象或对象数组。");
+  }
+
+  const columns = [];
+  const seen = new Set();
+  for (const record of records) {
+    for (const key of Object.keys(record)) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        columns.push(key);
+      }
+    }
+  }
+
+  const cell = (value) => {
+    let output;
+    if (value === null || value === undefined) output = "";
+    else if (typeof value === "object") output = JSON.stringify(value);
+    else output = String(value);
+    return formatCsvCell(output, delimiter);
+  };
+
+  const lines = [columns.map(cell).join(delimiter)];
+  for (const record of records) {
+    lines.push(columns.map((column) => cell(record[column])).join(delimiter));
+  }
+  return lines.join("\r\n");
+}
+
+export function processCsv(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  const mode = params.mode === "fromJson" ? "fromJson" : "toJson";
+  try {
+    if (mode === "fromJson") {
+      return success(jsonToCsv(input, params), { mode, delimiter: resolveCsvDelimiter(params.delimiter) });
+    }
+    return csvToJson(input, params);
+  } catch (error) {
+    return failure(error.message, { tool: "csv" });
+  }
+}
+
+function toPascalName(value, fallback = "Type") {
+  const parts = String(value).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (!parts.length) return fallback;
+  return parts.map((part) => part[0].toUpperCase() + part.slice(1)).join("");
+}
+
+function primitiveTypeOf(value) {
+  if (value === null) return "null";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  return "string";
+}
+
+function jsonToTsInfer(value, suggestedName, context) {
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) {
+    return primitiveTypeOf(value);
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) return "unknown[]";
+    const allObjects = value.every((item) => item && typeof item === "object" && !Array.isArray(item));
+    if (allObjects) {
+      const keys = [];
+      const seen = new Set();
+      for (const item of value) {
+        for (const key of Object.keys(item)) {
+          if (!seen.has(key)) {
+            seen.add(key);
+            keys.push(key);
+          }
+        }
+      }
+      const fields = {};
+      for (const key of keys) {
+        const present = value.filter((item) => key in item);
+        const childName = toPascalName(key);
+        const types = [...new Set(present.map((item) => jsonToTsInfer(item[key], childName, context)))];
+        fields[key] = {
+          type: types.join(" | "),
+          required: present.length === value.length,
+        };
+      }
+      return `${jsonToTsRegister(fields, suggestedName, context)}[]`;
+    }
+
+    const types = [...new Set(value.map((item) => jsonToTsInfer(item, `${suggestedName}Item`, context)))];
+    return types.length === 1 ? `${types[0]}[]` : `(${types.join(" | ")})[]`;
+  }
+
+  const fields = {};
+  for (const [key, child] of Object.entries(value)) {
+    fields[key] = {
+      type: jsonToTsInfer(child, toPascalName(key), context),
+      required: true,
+    };
+  }
+  return jsonToTsRegister(fields, suggestedName, context);
+}
+
+function jsonToTsRegister(fields, suggestedName, context) {
+  const signature = JSON.stringify(Object.entries(fields).map(([key, field]) => [key, field.type, field.required]));
+  if (context.signatureToName.has(signature)) {
+    return context.signatureToName.get(signature);
+  }
+
+  let name = toPascalName(suggestedName, "Type");
+  if (!/^[A-Za-z]/.test(name)) name = `T${name}`;
+  let candidate = name;
+  let suffix = 2;
+  while (context.usedNames.has(candidate)) {
+    candidate = `${name}${suffix}`;
+    suffix += 1;
+  }
+  context.usedNames.add(candidate);
+  context.signatureToName.set(signature, candidate);
+
+  const entries = Object.entries(fields).map(([key, field]) => {
+    const safeKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+    return `  ${safeKey}${field.required ? "" : "?"}: ${field.type};`;
+  });
+  context.interfaces.push(`interface ${candidate} {\n${entries.join("\n")}\n}`);
+  return candidate;
+}
+
+export function jsonToTypeScript(value, rootName = "Root") {
+  const context = {
+    interfaces: [],
+    signatureToName: new Map(),
+    usedNames: new Set(),
+  };
+  const safeRootName = toPascalName(rootName || "Root", "Root");
+  const type = jsonToTsInfer(value, safeRootName, context);
+  if (!context.interfaces.length) {
+    return `export type ${safeRootName} = ${type};`;
+  }
+  return context.interfaces.join("\n\n");
+}
+
+export function processJsonToTs(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(input);
+  } catch (error) {
+    return failure(error.message, { tool: "jsonts" });
+  }
+  try {
+    const rootName = typeof params.rootName === "string" && params.rootName.trim() ? params.rootName.trim() : "Root";
+    return success(jsonToTypeScript(parsed, rootName), { rootName });
+  } catch (error) {
+    return failure(error.message, { tool: "jsonts" });
+  }
+}
+
+function xmlLineAt(text, index) {
+  return text.slice(0, index).split("\n").length;
+}
+
+function parseXmlTokens(text) {
+  const tokens = [];
+  const fail = (message, index) => {
+    throw new Error(`${message}（第 ${xmlLineAt(text, index)} 行）。`);
+  };
+  let pos = 0;
+
+  while (pos < text.length) {
+    const lt = text.indexOf("<", pos);
+    if (lt === -1) {
+      const tail = text.slice(pos);
+      if (tail.trim()) tokens.push({ type: "text", value: tail });
+      break;
+    }
+    if (lt > pos) {
+      const head = text.slice(pos, lt);
+      if (head.trim()) tokens.push({ type: "text", value: head });
+    }
+
+    if (text.startsWith("<!--", lt)) {
+      const end = text.indexOf("-->", lt + 4);
+      if (end === -1) fail("XML 注释未闭合", lt);
+      tokens.push({ type: "comment", value: text.slice(lt, end + 3), line: xmlLineAt(text, lt) });
+      pos = end + 3;
+      continue;
+    }
+    if (text.startsWith("<![CDATA[", lt)) {
+      const end = text.indexOf("]]>", lt + 9);
+      if (end === -1) fail("XML CDATA 未闭合", lt);
+      tokens.push({ type: "cdata", value: text.slice(lt, end + 3), line: xmlLineAt(text, lt) });
+      pos = end + 3;
+      continue;
+    }
+    if (text.startsWith("<?", lt)) {
+      const end = text.indexOf("?>", lt + 2);
+      if (end === -1) fail("XML 处理指令未闭合", lt);
+      tokens.push({ type: "pi", value: text.slice(lt, end + 2), line: xmlLineAt(text, lt) });
+      pos = end + 2;
+      continue;
+    }
+    if (text.startsWith("<!", lt)) {
+      const end = text.indexOf(">", lt + 2);
+      if (end === -1) fail("XML 声明未闭合", lt);
+      tokens.push({ type: "doctype", value: text.slice(lt, end + 1), line: xmlLineAt(text, lt) });
+      pos = end + 1;
+      continue;
+    }
+    if (text.startsWith("</", lt)) {
+      const gt = text.indexOf(">", lt);
+      if (gt === -1) fail("XML 结束标签未闭合", lt);
+      const name = text.slice(lt + 2, gt).trim();
+      if (!name || /[\s/>]/.test(name)) fail("XML 结束标签名称无效", lt);
+      tokens.push({ type: "close", name, line: xmlLineAt(text, lt) });
+      pos = gt + 1;
+      continue;
+    }
+
+    let cursor = lt + 1;
+    let quote = null;
+    while (cursor < text.length) {
+      const char = text[cursor];
+      if (quote) {
+        if (char === quote) quote = null;
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === ">") {
+        break;
+      }
+      cursor += 1;
+    }
+    if (cursor >= text.length) fail("XML 开始标签未闭合", lt);
+
+    const inner = text.slice(lt + 1, cursor);
+    const selfClosing = inner.endsWith("/");
+    const body = selfClosing ? inner.slice(0, -1) : inner;
+    const nameMatch = /^([^\s/>]+)/.exec(body);
+    if (!nameMatch) fail("XML 标签名称无效", lt);
+    const attrs = body.slice(nameMatch[0].length);
+    if (!/^(?:\s+[\w:.-]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*$/.test(attrs)) {
+      fail("XML 属性格式无效，请检查引号是否闭合", lt);
+    }
+    tokens.push({
+      type: selfClosing ? "self" : "open",
+      name: nameMatch[0],
+      raw: text.slice(lt, cursor + 1),
+      line: xmlLineAt(text, lt),
+    });
+    pos = cursor + 1;
+  }
+  return tokens;
+}
+
+export function validateXml(text) {
+  const tokens = parseXmlTokens(text);
+  const stack = [];
+  let rootCount = 0;
+
+  for (const token of tokens) {
+    if (token.type === "open") {
+      if (!stack.length) {
+        rootCount += 1;
+        if (rootCount > 1) {
+          throw new Error(`XML 只能有一个根元素（第 ${token.line} 行出现多余根元素）。`);
+        }
+      }
+      stack.push(token);
+    } else if (token.type === "close") {
+      const top = stack.pop();
+      if (!top) {
+        throw new Error(`XML 第 ${token.line} 行：出现多余的结束标签 </${token.name}>。`);
+      }
+      if (top.name !== token.name) {
+        throw new Error(`XML 第 ${token.line} 行：结束标签 </${token.name}> 与开始标签 <${top.name}> 不匹配。`);
+      }
+    }
+  }
+
+  if (stack.length) {
+    const top = stack[stack.length - 1];
+    throw new Error(`XML 第 ${top.line} 行：开始标签 <${top.name}> 未闭合。`);
+  }
+  if (!rootCount) {
+    throw new Error("XML 缺少根元素。");
+  }
+  return { ok: true, elements: rootCount };
+}
+
+export function formatXml(text, { indent = "2" } = {}) {
+  validateXml(text);
+  const tokens = parseXmlTokens(text);
+  const unit = indent === "tab" ? "\t" : indent === "4" ? "    " : "  ";
+  const lines = [];
+  let depth = 0;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const pad = unit.repeat(depth);
+    if (token.type === "text") {
+      lines.push(pad + token.value.trim());
+      continue;
+    }
+    if (token.type === "close") {
+      depth = Math.max(0, depth - 1);
+      lines.push(unit.repeat(depth) + `</${token.name}>`);
+      continue;
+    }
+    if (token.type === "open") {
+      const next = tokens[index + 1];
+      const after = tokens[index + 2];
+      if (next && next.type === "text" && after && after.type === "close" && after.name === token.name) {
+        lines.push(`${pad}${token.raw.slice(0, -1)}>${next.value.trim()}</${token.name}>`);
+        index += 2;
+        continue;
+      }
+      lines.push(pad + token.raw);
+      depth += 1;
+      continue;
+    }
+    lines.push(pad + (token.value ?? token.raw));
+  }
+  return lines.join("\n");
+}
+
+export function processXml(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+  try {
+    const indent = ["2", "4", "tab"].includes(params.indent) ? params.indent : "2";
+    return success(formatXml(input, { indent }), { indent });
+  } catch (error) {
+    const lineMatch = /第 (\d+) 行/.exec(error.message);
+    return failure(error.message, { tool: "xml", line: lineMatch ? Number(lineMatch[1]) : null });
+  }
+}
+
 export function createDefaultState(toolId = "json") {
   if (!TOOL_IDS.includes(toolId)) toolId = "json";
   const states = {
@@ -1239,6 +1710,9 @@ export function createDefaultState(toolId = "json") {
     diff: { toolId, input: "", params: { mode: "text" }, input2: "" },
     encoding: { toolId, input: "", params: { mode: "hexEncode" } },
     entity: { toolId, input: "", params: { mode: "encode", numeric: false } },
+    csv: { toolId, input: "", params: { mode: "toJson", delimiter: "," } },
+    jsonts: { toolId, input: "", params: { rootName: "Root" } },
+    xml: { toolId, input: "", params: { indent: "2" } },
   };
   return structuredClone(states[toolId]);
 }
@@ -1303,6 +1777,23 @@ function normalizeParams(toolId, params) {
     return {
       mode: value.mode === "decode" ? "decode" : "encode",
       numeric: value.numeric === true || value.numeric === "true",
+    };
+  }
+  if (toolId === "csv") {
+    return {
+      mode: value.mode === "fromJson" ? "fromJson" : "toJson",
+      delimiter: [",", ";", "tab", "|"].includes(value.delimiter) ? value.delimiter : ",",
+      header: value.header !== false && value.header !== "false",
+    };
+  }
+  if (toolId === "jsonts") {
+    return {
+      rootName: typeof value.rootName === "string" && value.rootName.trim() ? value.rootName.trim() : "Root",
+    };
+  }
+  if (toolId === "xml") {
+    return {
+      indent: ["2", "4", "tab"].includes(value.indent) ? value.indent : "2",
     };
   }
   return {

@@ -25,6 +25,9 @@ import {
   processEncoding,
   processHtmlEntity,
   processJwt,
+  processCsv,
+  processJsonToTs,
+  processXml,
 } from "../assets/core.js";
 
 test("JSON is formatted and minified", () => {
@@ -296,4 +299,113 @@ test("HTML entity tool handles numeric entities and invalid hex", () => {
   assert.equal(processHtmlEntity("&#x5f00;", { mode: "decode" }).output, "开");
   assert.equal(processHtmlEntity("&#x110000;", { mode: "decode" }).output, "&#x110000;");
   assert.equal(processHtmlEntity("&lt", { mode: "decode" }).status, "success");
+});
+
+test("CSV tool converts CSV to JSON with quoting and delimiters", () => {
+  const result = processCsv('name,note\n"A, B","line1\nline2"\n李四,"say ""hi"""', { mode: "toJson", delimiter: "," });
+  assert.equal(result.status, "success");
+  const records = JSON.parse(result.output);
+  assert.deepEqual(records, [
+    { name: "A, B", note: "line1\nline2" },
+    { name: "李四", note: 'say "hi"' },
+  ]);
+
+  const tabbed = processCsv("a\tb\n1\t2", { mode: "toJson", delimiter: "tab" });
+  assert.equal(tabbed.status, "success");
+  assert.deepEqual(JSON.parse(tabbed.output), [{ a: "1", b: "2" }]);
+});
+
+test("CSV tool supports optional headers and column mismatch errors", () => {
+  const noHeader = processCsv("a,b\n1,2", { mode: "toJson", delimiter: ",", header: false });
+  assert.deepEqual(JSON.parse(noHeader.output), [{ column_1: "a", column_2: "b" }, { column_1: "1", column_2: "2" }]);
+
+  const mismatch = processCsv("a,b\n1", { mode: "toJson", delimiter: "," });
+  assert.equal(mismatch.status, "error");
+  assert.match(mismatch.error.message, /第 2 行/);
+});
+
+test("CSV tool exports JSON object arrays with escaping", () => {
+  const result = processCsv('[{"name":"A, B","tags":["x","y"],"note":null}]', { mode: "fromJson", delimiter: "," });
+  assert.equal(result.status, "success");
+  assert.equal(
+    result.output,
+    'name,tags,note\r\n"A, B","[""x"",""y""]",',
+  );
+
+  const invalid = processCsv("[1,2]", { mode: "fromJson", delimiter: "," });
+  assert.equal(invalid.status, "error");
+});
+
+test("JSON to TypeScript generates interfaces with optional and merged fields", () => {
+  const input = JSON.stringify({
+    id: 1,
+    user: { name: "dev" },
+    items: [{ id: 1, label: "a" }, { id: 2 }],
+  });
+  const result = processJsonToTs(input, { rootName: "api response" });
+  assert.equal(result.status, "success");
+  const output = result.output;
+  assert.match(output, /interface ApiResponse \{/);
+  assert.match(output, /interface User \{/);
+  assert.match(output, /interface Items \{/);
+  assert.match(output, /label\?: string;/);
+  assert.match(output, /items: Items\[\];/);
+});
+
+test("JSON to TypeScript deduplicates shapes and handles primitive roots", () => {
+  const value = { a: { x: 1 }, b: { x: 2 } };
+  const output = processJsonToTs(JSON.stringify(value), { rootName: "Root" }).output;
+  assert.match(output, /interface Root \{/);
+  assert.match(output, /interface A \{/);
+  assert.equal(output.match(/interface A \{/g).length, 1);
+  assert.equal(processJsonToTs('"text"', { rootName: "Root" }).output, "export type Root = string;");
+  assert.equal(processJsonToTs("not json", { rootName: "Root" }).status, "error");
+});
+
+test("XML tool formats well-formed documents", () => {
+  const input = '<?xml version="1.0"?><config debug="true"><!-- note --><item id="1">alpha</item><empty/></config>';
+  const result = processXml(input, { indent: "2" });
+  assert.equal(result.status, "success");
+  assert.equal(
+    result.output,
+    [
+      "<?xml version=\"1.0\"?>",
+      "<config debug=\"true\">",
+      "  <!-- note -->",
+      "  <item id=\"1\">alpha</item>",
+      "  <empty/>",
+      "</config>",
+    ].join("\n"),
+  );
+});
+
+test("XML tool reports mismatched and unclosed tags", () => {
+  const mismatch = processXml("<a>\n  <b></c>\n</a>", { indent: "2" });
+  assert.equal(mismatch.status, "error");
+  assert.equal(mismatch.error.line, 2);
+
+  const unclosed = processXml("<a>\n<b>", { indent: "2" });
+  assert.equal(unclosed.status, "error");
+  assert.match(unclosed.error.message, /未闭合/);
+
+  const multiRoot = processXml("<a/><a/>", { indent: "2" });
+  assert.equal(multiRoot.status, "error");
+});
+
+test("v1.3 tool states survive URL hash encoding", () => {
+  const state = {
+    version: 1,
+    toolId: "jsonts",
+    input: '{"id":1}',
+    params: { rootName: "ApiResponse" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(state)), state);
+
+  const csvState = {
+    version: 1,
+    toolId: "csv",
+    input: "a,b",
+    params: { mode: "fromJson", delimiter: "tab", header: false },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(csvState)), csvState);
 });

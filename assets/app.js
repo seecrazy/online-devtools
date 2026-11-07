@@ -5,14 +5,17 @@ import {
   convertTimestamp,
   createDefaultState,
   currentTimestampInfo,
+  processCsv,
   processHash,
   processBase64,
   processCron,
   processDiff,
   processEncoding,
   processHtmlEntity,
+  processJsonToTs,
   processJwt,
   processJson,
+  processXml,
   processUrl,
   processUuid,
   searchHttpStatusCodes,
@@ -127,6 +130,26 @@ const dom = {
     output: document.querySelector("#entity-output"),
     status: document.querySelector("#entity-status"),
   },
+  csv: {
+    input: document.querySelector("#csv-input"),
+    mode: document.querySelector("#csv-mode"),
+    delimiter: document.querySelector("#csv-delimiter"),
+    header: document.querySelector("#csv-header"),
+    output: document.querySelector("#csv-output"),
+    status: document.querySelector("#csv-status"),
+  },
+  jsonts: {
+    input: document.querySelector("#jsonts-input"),
+    root: document.querySelector("#jsonts-root"),
+    output: document.querySelector("#jsonts-output"),
+    status: document.querySelector("#jsonts-status"),
+  },
+  xml: {
+    input: document.querySelector("#xml-input"),
+    indent: document.querySelector("#xml-indent"),
+    output: document.querySelector("#xml-output"),
+    status: document.querySelector("#xml-status"),
+  },
 };
 
 const states = Object.fromEntries(TOOL_IDS.map((toolId) => [toolId, createDefaultState(toolId)]));
@@ -180,6 +203,18 @@ const samples = {
   entity: {
     input: "<div>Online DevTools</div>",
     params: { mode: "encode", numeric: false },
+  },
+  csv: {
+    input: `name,age,tags\n"Zhang, San",30,"a,b"\n李四,25,x`,
+    params: { mode: "toJson", delimiter: ",", header: true },
+  },
+  jsonts: {
+    input: `{\n  "code": 0,\n  "data": {\n    "id": 1,\n    "name": "Online DevTools",\n    "tags": ["dev", "tools"]\n  },\n  "active": true\n}`,
+    params: { rootName: "ApiResponse" },
+  },
+  xml: {
+    input: `<?xml version="1.0"?>\n<config debug="true"><!-- 本地配置 --><item id="1">alpha</item><empty/></config>`,
+    params: { indent: "2" },
   },
 };
 
@@ -333,6 +368,17 @@ function readStateFromDom(toolId = activeTool) {
     state.input = dom.entity.input.value;
     state.params.mode = dom.entity.mode.value;
     state.params.numeric = dom.entity.numeric.checked;
+  } else if (toolId === "csv") {
+    state.input = dom.csv.input.value;
+    state.params.mode = dom.csv.mode.value;
+    state.params.delimiter = dom.csv.delimiter.value;
+    state.params.header = dom.csv.header.checked;
+  } else if (toolId === "jsonts") {
+    state.input = dom.jsonts.input.value;
+    state.params.rootName = dom.jsonts.root.value || "Root";
+  } else if (toolId === "xml") {
+    state.input = dom.xml.input.value;
+    state.params.indent = dom.xml.indent.value;
   }
   return state;
 }
@@ -388,6 +434,17 @@ function writeStateToDom(state) {
     dom.entity.input.value = state.input;
     dom.entity.mode.value = state.params.mode;
     dom.entity.numeric.checked = state.params.numeric;
+  } else if (state.toolId === "csv") {
+    dom.csv.input.value = state.input;
+    dom.csv.mode.value = state.params.mode;
+    dom.csv.delimiter.value = state.params.delimiter;
+    dom.csv.header.checked = state.params.header !== false;
+  } else if (state.toolId === "jsonts") {
+    dom.jsonts.input.value = state.input;
+    dom.jsonts.root.value = state.params.rootName || "Root";
+  } else if (state.toolId === "xml") {
+    dom.xml.input.value = state.input;
+    dom.xml.indent.value = state.params.indent;
   }
 }
 
@@ -708,6 +765,55 @@ function renderEntity(result) {
   setStatus(dom.entity.status, "转换成功。", "success");
 }
 
+function renderCsv(result) {
+  if (result.status === "idle") {
+    setOutput(dom.csv.output, "");
+    setStatus(dom.csv.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.csv.output, "");
+    setStatus(dom.csv.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.csv.output, result.output);
+  setStatus(
+    dom.csv.status,
+    result.mode === "fromJson" ? "CSV 导出成功。" : "JSON 生成成功。",
+    "success",
+  );
+}
+
+function renderJsonToTs(result) {
+  if (result.status === "idle") {
+    setOutput(dom.jsonts.output, "");
+    setStatus(dom.jsonts.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.jsonts.output, "");
+    setStatus(dom.jsonts.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.jsonts.output, result.output);
+  setStatus(dom.jsonts.status, `TypeScript 类型生成成功，根类型 ${result.rootName}。`, "success");
+}
+
+function renderXml(result) {
+  if (result.status === "idle") {
+    setOutput(dom.xml.output, "");
+    setStatus(dom.xml.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.xml.output, "");
+    setStatus(dom.xml.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.xml.output, result.output);
+  setStatus(dom.xml.status, "XML 校验通过，格式化完成。", "success");
+}
+
 let regexWorker = null;
 let regexRunId = 0;
 let regexTimeoutId = null;
@@ -862,6 +968,12 @@ async function processToolNow() {
     renderEncoding(processEncoding(state.input, state.params));
   } else if (state.toolId === "entity") {
     renderEntity(processHtmlEntity(state.input, state.params));
+  } else if (state.toolId === "csv") {
+    renderCsv(processCsv(state.input, state.params));
+  } else if (state.toolId === "jsonts") {
+    renderJsonToTs(processJsonToTs(state.input, state.params));
+  } else if (state.toolId === "xml") {
+    renderXml(processXml(state.input, state.params));
   }
 }
 
@@ -1014,6 +1126,9 @@ function handleDocumentInput(event) {
     diff: ["diff-input", "diff-input2", "diff-mode"],
     encoding: ["encoding-input", "encoding-mode"],
     entity: ["entity-input", "entity-mode", "entity-numeric"],
+    csv: ["csv-input", "csv-mode", "csv-delimiter", "csv-header"],
+    jsonts: ["jsonts-input", "jsonts-root"],
+    xml: ["xml-input", "xml-indent"],
   }).find(([, ids]) => ids.includes(control.id))?.[0];
 
   if (!toolId) return;

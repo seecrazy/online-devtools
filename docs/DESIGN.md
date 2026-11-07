@@ -279,7 +279,7 @@ v1.3 按实现风险分两批交付；本节记录第一批的确认设计，第
 ##### v1.3 状态模型
 
 ```text
-csv:      { toolId, input, params: { mode: "toJson" | "fromJson", delimiter } }
+csv:      { toolId, input, params: { mode: "toJson" | "fromJson", delimiter, header: boolean } }
 jsonToTs: { toolId, input, params: { rootName: string } }
 xml:      { toolId, input, params: { indent: "2" | "4" | "tab" } }
 ```
