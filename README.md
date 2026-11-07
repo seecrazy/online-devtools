@@ -6,7 +6,7 @@ Online DevTools 是一个浏览器即用的开发者常用工具箱，重点覆�
 
 - 阶段：v1、v1.1 和 v1.2 核心实现完成，30 个自动化测试通过。
 - 当前工具：JSON 解析、Base64 编解码、URL 编解码、时间戳转换、正则表达式测试、Cron 表达式解析、UUID 生成、Hash 计算、HTTP 状态码速查、MIME Type 速查、JWT 解析、文本 / JSON Diff、字符编码与乱码修复、HTML Entity 编解码。
-- 扩展计划：分批添加数据格式转换、颜色、进制、文本处理与 Mock 数据等工具。
+- 扩展计划：v1.3 第一批实现 CSV ↔ JSON、JSON → TypeScript、XML 校验与格式化；后续分批添加 YAML / TOML / SQL / Markdown、颜色、进制、文本处理与 Mock 数据等工具。
 - 特色：正则与 Cron 提供基础讲解、常用示例和一键填入。
 - v1 架构：纯前端静态应用，数据处理默认在浏览器本地完成。
 - 技术选型：原生 Web 技术与 ES Modules，不引入运行时业务后端。
