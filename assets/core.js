@@ -20,6 +20,10 @@ export const TOOL_IDS = [
   "markdown",
   "yaml",
   "toml",
+  "color",
+  "radix",
+  "text",
+  "mock",
 ];
 export const MAX_INPUT_LENGTH = 1024 * 1024;
 export const MAX_URL_STATE_LENGTH = 64 * 1024;
@@ -2595,6 +2599,535 @@ export function processToml(input, params = {}) {
   }
 }
 
+function roundTo(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+export function rgbToHsl(r, g, b) {
+  const red = r / 255;
+  const green = g / 255;
+  const blue = b / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  let hue = 0;
+  let saturation = 0;
+  if (max !== min) {
+    const delta = max - min;
+    saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    if (max === red) hue = (green - blue) / delta + (green < blue ? 6 : 0);
+    else if (max === green) hue = (blue - red) / delta + 2;
+    else hue = (red - green) / delta + 4;
+    hue *= 60;
+  }
+  return { h: roundTo(hue, 1), s: roundTo(saturation * 100, 1), l: roundTo(lightness * 100, 1) };
+}
+
+export function hslToRgb(h, s, l) {
+  const hue = ((h % 360) + 360) % 360;
+  const saturation = Math.min(100, Math.max(0, s)) / 100;
+  const lightness = Math.min(100, Math.max(0, l)) / 100;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const x = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const match = lightness - chroma / 2;
+  let rgb;
+  if (hue < 60) rgb = [chroma, x, 0];
+  else if (hue < 120) rgb = [x, chroma, 0];
+  else if (hue < 180) rgb = [0, chroma, x];
+  else if (hue < 240) rgb = [0, x, chroma];
+  else if (hue < 300) rgb = [x, 0, chroma];
+  else rgb = [chroma, 0, x];
+  return rgb.map((value) => Math.round((value + match) * 255));
+}
+
+export function parseColor(input) {
+  const text = input.trim().toLowerCase();
+  if (!text) return null;
+
+  const clamp255 = (value) => Math.min(255, Math.max(0, Math.round(Number(value))));
+
+  const hexMatch = /^#([0-9a-f]+)$/.exec(text);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (![3, 4, 6, 8].includes(hex.length)) return null;
+    const expanded = hex.length <= 4 ? [...hex].map((char) => char + char).join("") : hex;
+    const r = Number.parseInt(expanded.slice(0, 2), 16);
+    const g = Number.parseInt(expanded.slice(2, 4), 16);
+    const b = Number.parseInt(expanded.slice(4, 6), 16);
+    const a = (hex.length === 4 || hex.length === 8) ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1;
+    return { r, g, b, a, ...rgbToHsl(r, g, b) };
+  }
+
+  const rgbMatch = /^rgba?\(\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*(?:[,/]\s*(\d*\.?\d+)\s*)?\)$/.exec(text);
+  if (rgbMatch) {
+    const r = clamp255(rgbMatch[1]);
+    const g = clamp255(rgbMatch[2]);
+    const b = clamp255(rgbMatch[3]);
+    const a = rgbMatch[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(rgbMatch[4])));
+    return { r, g, b, a, ...rgbToHsl(r, g, b) };
+  }
+
+  const hslMatch = /^hsla?\(\s*(\d{1,3}(?:\.\d+)?)(?:deg)?\s*[, ]\s*(\d{1,3}(?:\.\d+)?)%\s*[, ]\s*(\d{1,3}(?:\.\d+)?)%\s*(?:[,/]\s*(\d*\.?\d+)\s*)?\)$/.exec(text);
+  if (hslMatch) {
+    const h = Number(hslMatch[1]);
+    const s = Number(hslMatch[2]);
+    const l = Number(hslMatch[3]);
+    const a = hslMatch[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(hslMatch[4])));
+    const [r, g, b] = hslToRgb(h, s, l);
+    return { r, g, b, a, h: roundTo(((h % 360) + 360) % 360, 1), s: roundTo(Math.min(100, s), 1), l: roundTo(Math.min(100, l), 1) };
+  }
+
+  return null;
+}
+
+function relativeLuminance(r, g, b) {
+  const channel = (value) => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function contrastRatio(luminanceA, luminanceB) {
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function processColor(input, params = {}) {
+  if (!input.trim()) return idle();
+  const uppercase = params.uppercase === true || params.uppercase === "true";
+
+  const color = parseColor(input);
+  if (!color) {
+    return failure("无法识别颜色格式。支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA、rgb() / rgba()、hsl() / hsla()，暂不支持命名颜色。", { tool: "color" });
+  }
+
+  const { r, g, b, a } = color;
+  const hexBody = [r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const hex = a < 1 ? hexBody + Math.round(a * 255).toString(16).padStart(2, "0") : hexBody;
+  const alpha = roundTo(a, 2);
+  const rows = [
+    { label: "HEX", value: `#${uppercase ? hex.toUpperCase() : hex}` },
+    {
+      label: a < 1 ? "RGBA" : "RGB",
+      value: a < 1 ? `rgba(${r}, ${g}, ${b}, ${alpha})` : `rgb(${r}, ${g}, ${b})`,
+    },
+    {
+      label: a < 1 ? "HSLA" : "HSL",
+      value: a < 1 ?
+        `hsla(${color.h}, ${color.s}%, ${color.l}%, ${alpha})` :
+        `hsl(${color.h}, ${color.s}%, ${color.l}%)`,
+    },
+  ];
+
+  const luminance = relativeLuminance(r, g, b);
+  const contrastWhite = contrastRatio(luminance, 1);
+  const contrastBlack = contrastRatio(luminance, 0);
+  const suggestedText = contrastWhite >= contrastBlack ? "白色" : "黑色";
+
+  return success(rows.map((row) => `${row.label.padEnd(4)} ${row.value}`).join("\n"), {
+    rows,
+    color,
+    luminance: roundTo(luminance, 4),
+    contrastWhite: roundTo(contrastWhite, 2),
+    contrastBlack: roundTo(contrastBlack, 2),
+    suggestedText,
+  });
+}
+
+const RADIX_64_MASK = 2n ** 64n - 1n;
+const RADIX_BASE_PATTERNS = {
+  2: /^[01]+$/,
+  8: /^[0-7]+$/,
+  10: /^[0-9]+$/,
+  16: /^[0-9a-f]+$/,
+};
+
+export function parseRadixValue(text, base = "auto") {
+  let clean = String(text).replace(/[\s_]/g, "");
+  if (!clean) throw new Error("输入为空。");
+  if (clean.length > 100) throw new Error("输入过长，最多支持 100 个数字字符。");
+  if (/^-/.test(clean)) throw new Error("进制工具只支持非负整数；负数请使用其他方式换算。");
+
+  let effective = base === "auto" ? null : base;
+  const lowered = clean.toLowerCase();
+  if (lowered.startsWith("0x")) {
+    if (base !== "auto" && base !== "16") throw new Error("0x 前缀与所选进制不一致。");
+    effective = "16";
+    clean = clean.slice(2);
+  } else if (lowered.startsWith("0b")) {
+    if (base !== "auto" && base !== "2") throw new Error("0b 前缀与所选进制不一致。");
+    effective = "2";
+    clean = clean.slice(2);
+  } else if (lowered.startsWith("0o")) {
+    if (base !== "auto" && base !== "8") throw new Error("0o 前缀与所选进制不一致。");
+    effective = "8";
+    clean = clean.slice(2);
+  } else if (base === "auto") {
+    if (RADIX_BASE_PATTERNS[10].test(clean)) effective = "10";
+    else if (RADIX_BASE_PATTERNS[16].test(clean)) effective = "16";
+    else throw new Error("无法自动识别进制：无 0x/0b/0o 前缀且包含非十进制字符。请显式选择进制。");
+  }
+
+  if (!clean || !RADIX_BASE_PATTERNS[Number(effective)].test(clean)) {
+    throw new Error(`输入包含 ${effective} 进制不允许的字符。`);
+  }
+
+  const prefix = { 2: "0b", 8: "0o", 16: "0x", 10: "" }[Number(effective)];
+  const value = BigInt(prefix + clean);
+  if (value > RADIX_64_MASK) {
+    throw new Error("数值超出 64 位无符号范围（0 到 2^64-1）。");
+  }
+  return { value, base: effective };
+}
+
+const RADIX_BASE_LABELS = { 2: "二进制", 8: "八进制", 10: "十进制", 16: "十六进制" };
+
+function formatRadixRows(value, uppercase) {
+  return [
+    { label: "二进制", value: value.toString(2) },
+    { label: "八进制", value: value.toString(8) },
+    { label: "十进制", value: value.toString(10) },
+    { label: "十六进制", value: uppercase ? value.toString(16).toUpperCase() : value.toString(16) },
+  ];
+}
+
+export function processRadix(input, params = {}) {
+  if (!input.trim()) return idle();
+  const base = ["auto", "2", "8", "10", "16"].includes(params.base) ? params.base : "auto";
+  const operator = ["and", "or", "xor", "not", "lshift", "rshift"].includes(params.operator) ? params.operator : "none";
+  const uppercase = params.uppercase === true || params.uppercase === "true";
+
+  try {
+    const parsed = parseRadixValue(input, base);
+    let result = null;
+    let operation = null;
+
+    if (operator === "not") {
+      result = RADIX_64_MASK - parsed.value;
+      operation = `NOT ${input.trim()}`;
+    } else if (operator !== "none") {
+      if (!String(params.operand ?? "").trim()) {
+        throw new Error("请输入第二个操作数（移位运算为移位位数）。");
+      }
+      const operand = parseRadixValue(params.operand, base === "auto" ? parsed.base : base);
+      if (operator === "lshift" || operator === "rshift") {
+        if (operand.value > 63n) throw new Error("移位位数必须在 0 到 63 之间。");
+        result = operator === "lshift" ? (parsed.value << operand.value) & RADIX_64_MASK : parsed.value >> operand.value;
+      } else {
+        result = operator === "and" ? parsed.value & operand.value :
+          operator === "or" ? parsed.value | operand.value :
+            parsed.value ^ operand.value;
+      }
+      operation = `${input.trim()} ${operator === "and" ? "AND" : operator === "or" ? "OR" : operator === "xor" ? "XOR" : operator === "lshift" ? "<<" : ">>"} ${String(params.operand).trim()}`;
+    }
+
+    const rows = formatRadixRows(parsed.value, uppercase);
+    const resultRows = result === null ? null : formatRadixRows(result, uppercase);
+    const outputLines = [...rows, ...(resultRows || [])].map((row) => `${row.label}  ${row.value}`);
+    return success(outputLines.join("\n"), { rows, resultRows, base: parsed.base, operator, operation });
+  } catch (error) {
+    return failure(error.message, { tool: "radix" });
+  }
+}
+
+const TEXT_ACTIONS = [
+  "camelCase", "pascalCase", "snakeCase", "kebabCase", "constantCase", "upper", "lower", "titleCase", "sentenceCase",
+  "sortAsc", "sortDesc", "dedupeLines", "trimLines", "removeEmptyLines", "reverseLines", "numberLines",
+  "reverseText", "toLF", "toCRLF",
+];
+export { TEXT_ACTIONS };
+
+function splitIdentifierWords(text) {
+  const spaced = text
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+  return spaced.split(/[^A-Za-z0-9]+/).filter(Boolean);
+}
+
+export function textStats(text) {
+  const characters = [...text];
+  const lines = text.split("\n");
+  return {
+    chars: characters.length,
+    charsNoSpaces: characters.filter((char) => !/\s/.test(char)).length,
+    words: text.split(/\s+/).filter(Boolean).length,
+    lines: lines.length,
+    nonEmptyLines: lines.filter((line) => line.trim()).length,
+    bytes: new TextEncoder().encode(text).length,
+  };
+}
+
+export function processText(input, params = {}) {
+  if (!input.length) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+
+  const action = TEXT_ACTIONS.includes(params.action) ? params.action : "camelCase";
+  const words = splitIdentifierWords(input);
+  const normalizeLines = (text) => text.replace(/\r\n?/g, "\n").split("\n");
+  const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+  let output;
+  if (action === "camelCase") {
+    output = words.map((word, index) => index === 0 ? word.toLowerCase() : word[0].toUpperCase() + word.slice(1).toLowerCase()).join("");
+  } else if (action === "pascalCase") {
+    output = words.map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase()).join("");
+  } else if (action === "snakeCase") {
+    output = words.map((word) => word.toLowerCase()).join("_");
+  } else if (action === "kebabCase") {
+    output = words.map((word) => word.toLowerCase()).join("-");
+  } else if (action === "constantCase") {
+    output = words.map((word) => word.toUpperCase()).join("_");
+  } else if (action === "upper") {
+    output = input.toUpperCase();
+  } else if (action === "lower") {
+    output = input.toLowerCase();
+  } else if (action === "titleCase") {
+    output = input.replace(/\S+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+  } else if (action === "sentenceCase") {
+    output = input.charAt(0).toUpperCase() + input.slice(1).toLowerCase();
+  } else if (action === "sortAsc") {
+    output = normalizeLines(input).sort(compare).join("\n");
+  } else if (action === "sortDesc") {
+    output = normalizeLines(input).sort((a, b) => -compare(a, b)).join("\n");
+  } else if (action === "dedupeLines") {
+    output = [...new Set(normalizeLines(input))].join("\n");
+  } else if (action === "trimLines") {
+    output = normalizeLines(input).map((line) => line.trim()).join("\n");
+  } else if (action === "removeEmptyLines") {
+    output = normalizeLines(input).filter((line) => line.trim()).join("\n");
+  } else if (action === "reverseLines") {
+    output = normalizeLines(input).reverse().join("\n");
+  } else if (action === "numberLines") {
+    output = normalizeLines(input).map((line, index) => `${index + 1}. ${line}`).join("\n");
+  } else if (action === "reverseText") {
+    output = [...input].reverse().join("");
+  } else if (action === "toLF") {
+    output = input.replace(/\r\n?/g, "\n");
+  } else {
+    output = input.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n");
+  }
+
+  return success(output, { action, stats: textStats(input) });
+}
+
+function xmur3(seedText) {
+  let h = 1779033703 ^ seedText.length;
+  for (let index = 0; index < seedText.length; index += 1) {
+    h = Math.imul(h ^ seedText.charCodeAt(index), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  };
+}
+
+function mulberry32(seedNumber) {
+  let a = seedNumber;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function createMockRandom(seed) {
+  if (typeof seed !== "string" || !seed.trim()) return Math.random;
+  return mulberry32(xmur3(seed.trim())());
+}
+
+const MOCK_SURNAMES = ["张", "王", "李", "赵", "刘", "陈", "杨", "黄", "周", "吴", "徐", "孙", "马", "朱", "胡", "郭", "何", "林"];
+const MOCK_GIVEN_NAMES = ["伟", "芳", "娜", "敏", "静", "磊", "军", "洋", "勇", "艳", "杰", "涛", "明", "超", "秀英", "建国", "子涵", "雨轩", "思远", "梦琪"];
+const MOCK_FIRST_NAMES = ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Ivy", "Jack", "Karen", "Leo", "Mia", "Noah", "Olivia", "Peter"];
+const MOCK_LAST_NAMES = ["Smith", "Johnson", "Brown", "Garcia", "Miller", "Davis", "Wilson", "Anderson", "Taylor", "Thomas"];
+const MOCK_EMAIL_DOMAINS = ["example.com", "test.dev", "mail.cn", "inbox.org"];
+const MOCK_ALPHANUMERIC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const MOCK_DIRECTIVES = ["@cname", "@name", "@email", "@phone", "@integer", "@float", "@boolean", "@uuid", "@id", "@index", "@pick", "@string", "@hex", "@date", "@datetime", "@timestamp", "@repeat"];
+
+function mockRandInt(rng, min, max) {
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+function mockUuid(rng) {
+  const bytes = Array.from({ length: 16 }, () => Math.floor(rng() * 256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function mockNumberArgs(name, args, { min = -Number.MAX_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const numbers = args.map((arg) => Number(arg));
+  if (numbers.some((value) => !Number.isFinite(value))) {
+    throw new Error(`@${name} 的参数必须是数字。`);
+  }
+  for (const value of numbers) {
+    if (value < min || value > max) {
+      throw new Error(`@${name} 的参数超出范围（${min} 到 ${max}）。`);
+    }
+  }
+  return numbers;
+}
+
+function mockDateRange(name, args, defaults) {
+  const [startRaw, endRaw] = [
+    args[0] !== undefined && args[0] !== "" ? args[0] : defaults[0],
+    args[1] !== undefined && args[1] !== "" ? args[1] : defaults[1],
+  ];
+  const start = Date.parse(startRaw);
+  const end = Date.parse(endRaw);
+  if (Number.isNaN(start)) throw new Error(`@${name} 的起始时间无效：${startRaw}`);
+  if (Number.isNaN(end)) throw new Error(`@${name} 的结束时间无效：${endRaw}`);
+  if (start > end) throw new Error(`@${name} 的起始时间不能晚于结束时间。`);
+  return [start, end];
+}
+
+function generateMockValue(value, context) {
+  if (typeof value === "string") return generateMockDirective(value, context);
+  if (Array.isArray(value)) return value.map((item) => generateMockValue(item, context));
+  if (value && typeof value === "object") {
+    const output = {};
+    for (const [key, child] of Object.entries(value)) {
+      output[key] = generateMockValue(child, context);
+    }
+    return output;
+  }
+  return value;
+}
+
+function generateMockDirective(value, context) {
+  if (!value.startsWith("@")) return value;
+  const rng = context.rng;
+
+  const repeatMatch = /^@repeat\(\s*(\d+)\s*,\s*([\s\S]+)\)$/.exec(value);
+  if (repeatMatch) {
+    const count = Number(repeatMatch[1]);
+    if (count < 1 || count > 100) throw new Error("@repeat 的数量必须在 1 到 100 之间。");
+    return Array.from({ length: count }, () => generateMockDirective(repeatMatch[2].trim(), context));
+  }
+
+  const match = /^@([a-zA-Z]+)\s*(?:\((.*)\))?$/.exec(value);
+  if (!match) {
+    throw new Error(`无法识别的占位符：${value}。支持 ${MOCK_DIRECTIVES.join(" ")}。`);
+  }
+  const name = match[1];
+  const args = match[2] === undefined ? [] : match[2].split(",").map((arg) => arg.trim());
+
+  switch (name) {
+    case "cname":
+      return MOCK_SURNAMES[mockRandInt(rng, 0, MOCK_SURNAMES.length - 1)] + MOCK_GIVEN_NAMES[mockRandInt(rng, 0, MOCK_GIVEN_NAMES.length - 1)];
+    case "name":
+      return `${MOCK_FIRST_NAMES[mockRandInt(rng, 0, MOCK_FIRST_NAMES.length - 1)]} ${MOCK_LAST_NAMES[mockRandInt(rng, 0, MOCK_LAST_NAMES.length - 1)]}`;
+    case "email":
+      return `${MOCK_FIRST_NAMES[mockRandInt(rng, 0, MOCK_FIRST_NAMES.length - 1)].toLowerCase()}.${MOCK_LAST_NAMES[mockRandInt(rng, 0, MOCK_LAST_NAMES.length - 1)].toLowerCase()}${mockRandInt(rng, 1, 99)}@${MOCK_EMAIL_DOMAINS[mockRandInt(rng, 0, MOCK_EMAIL_DOMAINS.length - 1)]}`;
+    case "phone": {
+      let phone = `1${["3", "5", "7", "8", "9"][mockRandInt(rng, 0, 4)]}`;
+      for (let index = 0; index < 9; index += 1) phone += mockRandInt(rng, 0, 9);
+      return phone;
+    }
+    case "integer": {
+      const [min = 0, max = 100] = mockNumberArgs("integer", args);
+      if (!Number.isInteger(min) || !Number.isInteger(max) || min > max) {
+        throw new Error("@integer 参数必须是 min <= max 的整数。");
+      }
+      return mockRandInt(rng, min, max);
+    }
+    case "float": {
+      const [min = 0, max = 100, precisionArg] = mockNumberArgs("float", args);
+      const precision = precisionArg === undefined ? 2 : Math.round(precisionArg);
+      if (min > max || precision < 0 || precision > 10) {
+        throw new Error("@float 参数无效：需要 min <= max 且精度在 0 到 10 之间。");
+      }
+      return Number((min + rng() * (max - min)).toFixed(precision));
+    }
+    case "boolean":
+      return rng() < 0.5;
+    case "uuid":
+      return mockUuid(rng);
+    case "id":
+      return context.counter++;
+    case "index":
+      return context.indexCounter++;
+    case "pick": {
+      if (!match[2] || !match[2].trim()) throw new Error("@pick 需要用 | 分隔的候选值，例如 @pick(启用|停用)。");
+      const options = match[2].split("|").map((option) => option.trim());
+      return options[mockRandInt(rng, 0, options.length - 1)];
+    }
+    case "string": {
+      const [length = 8] = mockNumberArgs("string", args, { min: 1, max: 256 });
+      let result = "";
+      for (let index = 0; index < Math.round(length); index += 1) {
+        result += MOCK_ALPHANUMERIC[mockRandInt(rng, 0, MOCK_ALPHANUMERIC.length - 1)];
+      }
+      return result;
+    }
+    case "hex": {
+      const [length = 8] = mockNumberArgs("hex", args, { min: 1, max: 256 });
+      let result = "";
+      for (let index = 0; index < Math.round(length); index += 1) result += mockRandInt(rng, 0, 15).toString(16);
+      return result;
+    }
+    case "date": {
+      const [start, end] = mockDateRange("date", args, ["1970-01-01", "2030-12-31"]);
+      return new Date(mockRandInt(rng, start, end)).toISOString().slice(0, 10);
+    }
+    case "datetime": {
+      const [start, end] = mockDateRange("datetime", args, ["2000-01-01T00:00:00Z", "2030-12-31T23:59:59Z"]);
+      return new Date(mockRandInt(rng, start, end)).toISOString().slice(0, 19) + "Z";
+    }
+    case "timestamp": {
+      const [start = 0, end = 4102444800] = mockNumberArgs("timestamp", args, { min: 0, max: Number.MAX_SAFE_INTEGER });
+      if (start > end || !Number.isInteger(start) || !Number.isInteger(end)) {
+        throw new Error("@timestamp 参数必须是 start <= end 的整数秒。");
+      }
+      return mockRandInt(rng, start, end);
+    }
+    default:
+      throw new Error(`不支持的占位符 @${name}。支持 ${MOCK_DIRECTIVES.join(" ")}。`);
+  }
+}
+
+export function processMock(input, params = {}) {
+  if (!input.trim()) return idle();
+  const sizeError = checkInputSize(input);
+  if (sizeError) return sizeError;
+
+  const count = Math.max(1, Math.min(100, Number(params.count) || 5));
+  const seed = typeof params.seed === "string" ? params.seed.slice(0, 64) : "";
+
+  let template;
+  try {
+    template = JSON.parse(input);
+  } catch (error) {
+    return failure(`JSON 解析失败：${error.message}`, { tool: "mock" });
+  }
+
+  try {
+    if (Array.isArray(template)) {
+      if (template.length !== 1) {
+        throw new Error("根模板必须是 JSON 对象，或只包含一个模板元素的数组。");
+      }
+      template = template[0];
+    }
+    if (!template || typeof template !== "object" || Array.isArray(template)) {
+      throw new Error("模板必须是 JSON 对象，字符串值使用 @占位符 生成模拟数据。");
+    }
+
+    const context = { rng: createMockRandom(seed), counter: 1, indexCounter: 0 };
+    const records = Array.from({ length: count }, () => generateMockValue(template, context));
+    return success(JSON.stringify(records, null, 2), { generated: count, seed });
+  } catch (error) {
+    return failure(error.message, { tool: "mock" });
+  }
+}
+
 export function createDefaultState(toolId = "json") {
   if (!TOOL_IDS.includes(toolId)) toolId = "json";
   const states = {
@@ -2619,6 +3152,10 @@ export function createDefaultState(toolId = "json") {
     markdown: { toolId, input: "", params: {} },
     yaml: { toolId, input: "", params: { mode: "toJson" } },
     toml: { toolId, input: "", params: { mode: "toJson" } },
+    color: { toolId, input: "", params: { uppercase: false } },
+    radix: { toolId, input: "", params: { base: "auto", operator: "none", operand: "", uppercase: false } },
+    text: { toolId, input: "", params: { action: "camelCase" } },
+    mock: { toolId, input: "", params: { count: 5, seed: "" } },
   };
   return structuredClone(states[toolId]);
 }
@@ -2714,6 +3251,30 @@ function normalizeParams(toolId, params) {
   if (toolId === "yaml" || toolId === "toml") {
     return {
       mode: value.mode === "fromJson" ? "fromJson" : "toJson",
+    };
+  }
+  if (toolId === "color") {
+    return {
+      uppercase: value.uppercase === true || value.uppercase === "true",
+    };
+  }
+  if (toolId === "radix") {
+    return {
+      base: ["auto", "2", "8", "10", "16"].includes(value.base) ? value.base : "auto",
+      operator: ["none", "and", "or", "xor", "not", "lshift", "rshift"].includes(value.operator) ? value.operator : "none",
+      operand: typeof value.operand === "string" ? value.operand.slice(0, 128) : "",
+      uppercase: value.uppercase === true || value.uppercase === "true",
+    };
+  }
+  if (toolId === "text") {
+    return {
+      action: TEXT_ACTIONS.includes(value.action) ? value.action : "camelCase",
+    };
+  }
+  if (toolId === "mock") {
+    return {
+      count: Math.max(1, Math.min(100, Number(value.count) || 5)),
+      seed: typeof value.seed === "string" ? value.seed.slice(0, 64) : "",
     };
   }
   return {

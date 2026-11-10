@@ -44,7 +44,10 @@ jobs:
         run: |
           mkdir -p site
           cp index.html site/
+          cp manifest.webmanifest site/
+          cp sw.js site/
           cp -R assets site/
+          cp -R icons site/
           cp .nojekyll site/
 
       - name: Configure GitHub Pages

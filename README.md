@@ -4,11 +4,12 @@ Online DevTools 是一个浏览器即用的开发者常用工具箱，重点覆�
 
 ## 当前状态
 
-- 阶段：v1、v1.1、v1.2 与 v1.3（两批）核心实现完成，49 个自动化测试通过。
-- 当前工具：JSON 解析、Base64 编解码、URL 编解码、时间戳转换、正则表达式测试、Cron 表达式解析、UUID 生成、Hash 计算、HTTP 状态码速查、MIME Type 速查、JWT 解析、文本 / JSON Diff、字符编码与乱码修复、HTML Entity 编解码、CSV ↔ JSON、JSON → TypeScript、XML 校验与格式化、SQL 格式化、Markdown → HTML、YAML ↔ JSON、TOML ↔ JSON。
+- 阶段：v1、v1.1、v1.2、v1.3（两批）与 v1.4 第一批核心实现完成，61 个自动化测试通过。
+- 当前工具：JSON 解析、Base64 编解码、URL 编解码、时间戳转换、正则表达式测试、Cron 表达式解析、UUID 生成、Hash 计算、HTTP 状态码速查、MIME Type 速查、JWT 解析、文本 / JSON Diff、字符编码与乱码修复、HTML Entity 编解码、CSV ↔ JSON、JSON → TypeScript、XML 校验与格式化、SQL 格式化、Markdown → HTML、YAML ↔ JSON、TOML ↔ JSON、颜色转换、进制与位运算、文本处理、Mock 数据生成，共 25 个。
 - 子集边界：YAML / TOML 使用自写文档化子集解析器（见 ADR-006），不支持锚点别名、多文档、多行字符串、日期时间等完整规范语法。
-- 扩展计划：v1.4 颜色转换、进制与位运算、文本处理、Mock 数据、PWA 离线等。
-- 特色：正则与 Cron 提供基础讲解、常用示例和一键填入。
+- 体验能力：工具导航筛选（`/` 快捷键）、本地收藏与最近使用（localStorage）、PWA 离线支持（manifest + Service Worker，见 ADR-007）。
+- 扩展计划：v1.4 第二批 JSON 树形视图 / JSONPath、Cron 宏与 Quartz 方言评估。
+- 特色：正则与 Cron 提供基础讲解、常用示例和一键填入；Mock 数据支持种子复现；进制位运算按 64 位无符号语义。
 - v1 架构：纯前端静态应用，数据处理默认在浏览器本地完成。
 - 技术选型：原生 Web 技术与 ES Modules，不引入运行时业务后端。
 - 待办：在真实浏览器完成手工验收与性能实测。
@@ -22,11 +23,11 @@ Online DevTools 是一个浏览器即用的开发者常用工具箱，重点覆�
 
 ## v1 预期使用方式
 
-1. 打开首页，看到工具入口。
-2. 选择 JSON、Base64、时间戳、正则、Cron、JWT、Diff 或其他工具。
+1. 打开首页，看到工具入口，可用筛选框或 `/` 快捷键快速定位。
+2. 选择 JSON、Base64、时间戳、正则、Cron、JWT、Diff、颜色、进制、Mock 或其他工具。
 3. 输入内容并选择参数。
 4. 查看解析、转换或校验结果。
-5. 复制结果，或复制包含当前状态的分享链接。
+5. 复制结果，或复制包含当前状态的分享链接；常用工具可收藏到导航顶部。
 
 ## 核心原则
 

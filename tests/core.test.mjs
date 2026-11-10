@@ -32,6 +32,10 @@ import {
   processMarkdown,
   processYaml,
   processToml,
+  processColor,
+  processRadix,
+  processText,
+  processMock,
 } from "../assets/core.js";
 
 test("JSON is formatted and minified", () => {
@@ -615,4 +619,284 @@ test("v1.3 batch two tool states survive URL hash encoding", () => {
     params: { mode: "toJson" },
   };
   assert.deepEqual(stateFromHash(stateToHash(tomlState)), tomlState);
+});
+
+test("color tool parses hex, rgb and hsl with conversions", () => {
+  const hex = processColor("#2563EB");
+  assert.equal(hex.status, "success");
+  assert.equal(hex.rows[0].value, "#2563eb");
+  assert.equal(hex.rows[1].value, "rgb(37, 99, 235)");
+  assert.ok(hex.rows[2].value.startsWith("hsl(221"));
+
+  const short = processColor("#abc");
+  assert.equal(short.rows[1].value, "rgb(170, 187, 204)");
+
+  const rgb = processColor("rgb(255, 99, 71)");
+  assert.equal(rgb.rows[0].value, "#ff6347");
+
+  const hsl = processColor("hsl(0, 100%, 50%)");
+  assert.equal(hsl.rows[0].value, "#ff0000");
+  assert.equal(hsl.rows[1].value, "rgb(255, 0, 0)");
+
+  const alpha = processColor("rgba(37, 99, 235, 0.5)");
+  assert.equal(alpha.rows[0].value, "#2563eb80");
+  assert.equal(alpha.rows[1].value, "rgba(37, 99, 235, 0.5)");
+  assert.match(alpha.rows[2].value, /^hsla\(221/);
+
+  const invalid = processColor("not-a-color");
+  assert.equal(invalid.status, "error");
+  assert.match(invalid.error.message, /无法识别颜色格式/);
+});
+
+test("color tool reports luminance and contrast suggestions", () => {
+  const dark = processColor("#111111");
+  assert.equal(dark.status, "success");
+  assert.ok(dark.contrastWhite > 10);
+  assert.ok(dark.contrastBlack < 2);
+  assert.equal(dark.suggestedText, "白色");
+
+  const bright = processColor("#ffffff");
+  assert.equal(bright.suggestedText, "黑色");
+
+  const uppercased = processColor("#abc", { uppercase: true });
+  assert.equal(uppercased.rows[0].value, "#AABBCC");
+});
+
+test("radix tool auto-detects prefixes and converts between bases", () => {
+  const hex = processRadix("0xff", { base: "auto", operator: "none" });
+  assert.equal(hex.status, "success");
+  assert.equal(hex.base, "16");
+  assert.deepEqual(hex.rows.map((row) => row.value), ["11111111", "377", "255", "ff"]);
+
+  const binary = processRadix("0b1010", { base: "auto", operator: "none" });
+  assert.equal(binary.rows[2].value, "10");
+
+  const octal = processRadix("0o17", { base: "auto", operator: "none" });
+  assert.equal(octal.rows[2].value, "15");
+
+  const plain = processRadix("ff00", { base: "auto", operator: "none" });
+  assert.equal(plain.base, "16");
+  assert.equal(plain.rows[2].value, "65280");
+
+  const explicit = processRadix("1010", { base: "2", operator: "none" });
+  assert.equal(explicit.rows[2].value, "10");
+
+  const upper = processRadix("0xff", { base: "auto", operator: "none", uppercase: true });
+  assert.equal(upper.rows[3].value, "FF");
+});
+
+test("radix tool computes 64-bit unsigned bitwise operations", () => {
+  const and = processRadix("0xff", { base: "auto", operator: "and", operand: "0x0f" });
+  assert.equal(and.status, "success");
+  assert.equal(and.resultRows[2].value, "15");
+
+  const xor = processRadix("0b1100", { base: "2", operator: "xor", operand: "1010" });
+  assert.equal(xor.resultRows[0].value, "110");
+
+  const or = processRadix("8", { base: "10", operator: "or", operand: "1" });
+  assert.equal(or.resultRows[2].value, "9");
+
+  const not = processRadix("0", { base: "10", operator: "not" });
+  assert.equal(not.resultRows[2].value, "18446744073709551615");
+
+  const lshift = processRadix("1", { base: "10", operator: "lshift", operand: "4" });
+  assert.equal(lshift.resultRows[2].value, "16");
+
+  const rshift = processRadix("256", { base: "10", operator: "rshift", operand: "4" });
+  assert.equal(rshift.resultRows[2].value, "16");
+});
+
+test("radix tool rejects invalid numbers and operands", () => {
+  const badChar = processRadix("129", { base: "8", operator: "none" });
+  assert.equal(badChar.status, "error");
+
+  const negative = processRadix("-5", { base: "10", operator: "none" });
+  assert.equal(negative.status, "error");
+  assert.match(negative.error.message, /非负/);
+
+  const overflow = processRadix("0x1ffffffffffffffff", { base: "auto", operator: "none" });
+  assert.equal(overflow.status, "error");
+  assert.match(overflow.error.message, /64 位/);
+
+  const missingOperand = processRadix("1", { base: "10", operator: "and", operand: "" });
+  assert.equal(missingOperand.status, "error");
+  assert.match(missingOperand.error.message, /第二个操作数/);
+
+  const bigShift = processRadix("1", { base: "10", operator: "lshift", operand: "70" });
+  assert.equal(bigShift.status, "error");
+  assert.match(bigShift.error.message, /移位位数/);
+
+  const ambiguous = processRadix("0zz", { base: "auto", operator: "none" });
+  assert.equal(ambiguous.status, "error");
+});
+
+test("text tool converts identifier naming styles", () => {
+  const cases = [
+    ["camelCase", "userNameHttpResponseField"],
+    ["pascalCase", "UserNameHttpResponseField"],
+    ["snakeCase", "user_name_http_response_field"],
+    ["kebabCase", "user-name-http-response-field"],
+    ["constantCase", "USER_NAME_HTTP_RESPONSE_FIELD"],
+  ];
+  for (const [action, expected] of cases) {
+    const result = processText("user_name HTTPResponse field", { action });
+    assert.equal(result.status, "success");
+    assert.equal(result.output, expected);
+  }
+
+  assert.equal(processText("hello WORLD", { action: "titleCase" }).output, "Hello World");
+  assert.equal(processText("hello WORLD", { action: "sentenceCase" }).output, "Hello world");
+  assert.equal(processText("abc", { action: "unknownAction" }).output, "abc");
+});
+
+test("text tool sorts, dedupes and transforms lines", () => {
+  const sortAsc = processText("banana\r\napple\ncherry", { action: "sortAsc" });
+  assert.equal(sortAsc.output, "apple\nbanana\ncherry");
+
+  const sortDesc = processText("b\na\nc", { action: "sortDesc" });
+  assert.equal(sortDesc.output, "c\nb\na");
+
+  const dedupe = processText("a\nb\na\n\nb", { action: "dedupeLines" });
+  assert.equal(dedupe.output, "a\nb\n");
+
+  const trimmed = processText("  a \n b  ", { action: "trimLines" });
+  assert.equal(trimmed.output, "a\nb");
+
+  const noEmpty = processText("a\n\n \nb", { action: "removeEmptyLines" });
+  assert.equal(noEmpty.output, "a\nb");
+
+  const numbered = processText("x\ny", { action: "numberLines" });
+  assert.equal(numbered.output, "1. x\n2. y");
+
+  const reversed = processText("一\n二\n三", { action: "reverseLines" });
+  assert.equal(reversed.output, "三\n二\n一");
+
+  const emoji = processText("a🙂b", { action: "reverseText" });
+  assert.equal(emoji.output, "b🙂a");
+});
+
+test("text tool converts line endings and reports stats", () => {
+  const crlf = processText("a\r\nb\rc", { action: "toLF" });
+  assert.equal(crlf.output, "a\nb\nc");
+
+  const lf = processText("a\nb", { action: "toCRLF" });
+  assert.equal(lf.output, "a\r\nb");
+
+  const stats = processText("Hello 世界\nsecond line", { action: "upper" });
+  assert.deepEqual(stats.stats, {
+    chars: 20,
+    charsNoSpaces: 17,
+    words: 4,
+    lines: 2,
+    nonEmptyLines: 2,
+    bytes: 24,
+  });
+  assert.equal(stats.output, "HELLO 世界\nSECOND LINE");
+});
+
+test("mock tool generates deterministic records from a seed", () => {
+  const template = JSON.stringify({
+    id: "@id",
+    name: "@cname",
+    email: "@email",
+    phone: "@phone",
+    age: "@integer(18, 60)",
+    score: "@float(0, 100, 1)",
+    active: "@boolean",
+    uid: "@uuid",
+    tags: "@repeat(2, @pick(线上|VIP))",
+  });
+  const first = processMock(template, { count: 3, seed: "devtools" });
+  const second = processMock(template, { count: 3, seed: "devtools" });
+  assert.equal(first.status, "success");
+  assert.equal(first.output, second.output);
+
+  const records = JSON.parse(first.output);
+  assert.equal(records.length, 3);
+  assert.deepEqual(records.map((record) => record.id), [1, 2, 3]);
+  for (const record of records) {
+    assert.match(record.phone, /^1[35789]\d{9}$/);
+    assert.ok(record.age >= 18 && record.age <= 60);
+    assert.match(record.uid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.match(record.email, /@/);
+    assert.equal(record.tags.length, 2);
+  }
+});
+
+test("mock tool supports generators, arrays and root templates", () => {
+  const arrayRoot = processMock('[{ "code": "@integer(5, 5)", "hex": "@hex(6)", "text": "@string(10)" }]', { count: 2, seed: "seed-a" });
+  assert.equal(arrayRoot.status, "success");
+  const records = JSON.parse(arrayRoot.output);
+  assert.equal(records.length, 2);
+  assert.equal(records[0].code, 5);
+  assert.match(records[0].hex, /^[0-9a-f]{6}$/);
+  assert.match(records[0].text, /^[A-Za-z0-9]{10}$/);
+
+  const dateRange = processMock('{ "d": "@date(2026-01-01, 2026-01-31)", "t": "@timestamp(1000, 2000)", "i": "@index" }', { count: 2, seed: "s" });
+  const dated = JSON.parse(dateRange.output);
+  assert.match(dated[0].d, /^2026-01-\d{2}$/);
+  assert.ok(dated[0].t >= 1000 && dated[0].t <= 2000);
+  assert.deepEqual(dated.map((record) => record.i), [0, 1]);
+
+  const literal = processMock('{ "keep": "plain value", "n": 42, "flag": false, "list": ["@integer(1, 1)", "static"] }', { count: 1, seed: "x" });
+  const record = JSON.parse(literal.output)[0];
+  assert.equal(record.keep, "plain value");
+  assert.equal(record.n, 42);
+  assert.equal(record.flag, false);
+  assert.deepEqual(record.list, [1, "static"]);
+});
+
+test("mock tool reports readable errors for bad templates", () => {
+  const badJson = processMock("{ not json", { count: 1 });
+  assert.equal(badJson.status, "error");
+  assert.match(badJson.error.message, /JSON 解析失败/);
+
+  const unknown = processMock('{ "a": "@nope" }', { count: 1 });
+  assert.equal(unknown.status, "error");
+  assert.match(unknown.error.message, /不支持的占位符 @nope/);
+
+  const scalarRoot = processMock('"@integer"', { count: 1 });
+  assert.equal(scalarRoot.status, "error");
+  assert.match(scalarRoot.error.message, /模板必须是 JSON 对象/);
+
+  const badRange = processMock('{ "a": "@integer(10, 1)" }', { count: 1 });
+  assert.equal(badRange.status, "error");
+
+  const multiArray = processMock('[{ "a": 1 }, { "a": 2 }]', { count: 2 });
+  assert.equal(multiArray.status, "error");
+  assert.match(multiArray.error.message, /根模板/);
+});
+
+test("v1.4 tool states survive URL hash encoding", () => {
+  const colorState = {
+    version: 1,
+    toolId: "color",
+    input: "#2563EB",
+    params: { uppercase: true },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(colorState)), colorState);
+
+  const radixState = {
+    version: 1,
+    toolId: "radix",
+    input: "0xff",
+    params: { base: "auto", operator: "and", operand: "0x0f", uppercase: true },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(radixState)), radixState);
+
+  const textState = {
+    version: 1,
+    toolId: "text",
+    input: "a b",
+    params: { action: "snakeCase" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(textState)), textState);
+
+  const mockState = {
+    version: 1,
+    toolId: "mock",
+    input: '{ "id": "@id" }',
+    params: { count: 10, seed: "repro" },
+  };
+  assert.deepEqual(stateFromHash(stateToHash(mockState)), mockState);
 });

@@ -32,16 +32,23 @@
 23. v1.3 第一批核心功能已实现，共 38 个自动化测试全部通过；三个新工具加入「数据转换」导航分组并支持 URL hash 状态恢复。
 24. CSV 无表头模式通过「首行为表头」开关控制；XML 校验覆盖标签配对、属性引号、唯一根元素、注释 / CDATA / 处理指令。
 25. v1.3 第二批方案已确认（ADR-006）：SQL 与 Markdown 走零依赖纯逻辑；YAML / TOML 采用自写文档化子集解析器，超出子集的输入明确报错。
+26. v1.3 第二批（SQL、Markdown、YAML、TOML）已实现，49 个自动化测试全部通过。
+27. v1.4 第一批已实现（ADR-007）：颜色转换器、进制转换与位运算、文本处理、Mock 数据生成四个新工具，加入导航「常用转换」与「数据转换」分组并支持 URL hash 状态恢复。
+28. Mock 数据使用占位符 DSL（@cname、@email、@integer、@pick、@repeat 等 17 种），种子非空时走 xmur3 + mulberry32 确定性随机流，可复现。
+29. 进制与位运算按 BigInt 64 位无符号语义（0 到 2^64-1），NOT 为 64 位补码，左移掩码回 64 位，移位 0-63。
+30. 体验增强已实现：导航筛选（`/` 聚焦、Esc 清空）、本地收藏（上限 12）与最近使用（上限 8，导航展示前 5）、PWA 离线（manifest + 版本化 cache-first Service Worker，仅 https/localhost 注册）。
+31. 部署流水线已更新：Pages artifact 额外打包 manifest.webmanifest、sw.js 与 icons/。
+32. 当前共 61 个自动化测试全部通过；v1.4 第一批浏览器手工验收待执行。
 
 ## 下一步
 
 1. 在真实浏览器完成五类工具手工验收。
 2. 在真实浏览器完成 v1.1 高频工具和 v1.2 联调排查工具手工验收。
-3. 在真实浏览器完成 v1.3 第一批三个工具手工验收。
-4. 实现 v1.3 第二批：SQL 格式化、Markdown → HTML、YAML ↔ JSON、TOML ↔ JSON。
-5. 手动推送到 GitHub `main`，确认 Actions 自动测试并部署。
-6. 验证 Pages 子路径资源加载。
-7. 完成性能指标实测。
+3. 在真实浏览器完成 v1.3 两批工具与 v1.4 第一批（颜色、进制、文本、Mock、收藏、筛选、PWA 离线）手工验收。
+4. 手动推送到 GitHub `main`，确认 Actions 自动测试并部署；验证 Pages 下 Service Worker 与 manifest 生效。
+5. 验证 Pages 子路径资源加载与 PWA 安装提示。
+6. 完成性能指标实测。
+7. 评估 v1.4 第二批：JSON 树形视图 / JSONPath、Cron 宏与 Quartz 方言。
 8. 如发现 UI 或兼容性问题，先更新验收记录，再修复实现。
 
 ## 变更要求

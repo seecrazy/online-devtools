@@ -1,0 +1,19 @@
+{
+  "name": "Online DevTools 开发者工具箱",
+  "short_name": "DevTools",
+  "description": "JSON、Base64、时间戳、正则、Cron、颜色、进制、Mock 数据等开发者常用工具，全部在浏览器本地处理。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

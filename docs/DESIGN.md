@@ -173,10 +173,11 @@ Online DevTools 的定位从早期的“在线代码运行 playground”调整�
 后续工具按四个层级组织：
 
 1. **导航分组**
-   - 常用转换：JSON、Base64、URL、时间戳
-   - 校验调试：正则、Cron、Hash、JWT、Diff
+   - 常用转换：JSON、Base64、URL、时间戳、UUID、Hash、颜色、进制、文本
+   - 校验调试：正则、Cron、JWT、Diff、字符编码、HTML Entity
+   - 数据转换：CSV、JSON → TS、XML、SQL、Markdown、YAML、TOML、Mock
    - 速查手册：HTTP、MIME
-   - 数据处理：文本、颜色、进制、Mock、格式转换
+   - 动态分组：收藏、最近使用（基于 localStorage，见 v1.4）
 2. **通用工作台**
    - 输入区、参数区、输出区复用现有模式。
    - 速查类工具使用搜索 + 表格布局。
@@ -338,18 +339,71 @@ xml:      { toolId, input, params: { indent: "2" | "4" | "tab" } }
 
 #### v1.4 工具范围
 
+v1.4 拆分为两批：第一批实现四个新工具与体验增强（本节为确认设计，见 ADR-007）；第二批评估 JSON 树形视图 / JSONPath 与 Cron 宏 / Quartz 方言。
+
+##### v1.4 第一批（新工具）
+
 1. **颜色转换器**
-   - HEX / RGB / HSL
-   - 亮度与对比度
-2. **进制与位运算**
-   - 二进制 / 八进制 / 十进制 / 十六进制
-   - 与、或、异或、非、移位
-3. **文本处理工具**
-   - 命名风格转换
-   - 行排序、去重、修剪
-   - LF / CRLF 转换
+   - 输入识别：#RGB / #RGBA / #RRGGBB / #RRGGBBAA、rgb() / rgba()、hsl() / hsla()（逗号或空格分隔）。
+   - 输出 HEX / RGB(A) / HSL(A) 三种表示，带色板预览与逐项复制。
+   - 相对亮度与“与白底 / 黑底对比度”按 WCAG 公式计算，并给出建议文字颜色。
+   - 参数：HEX 大写开关。不支持命名颜色与百分比 RGB，页面明示。
+2. **进制转换与位运算**
+   - 输入：数字 A（可选进制：自动 / 2 / 8 / 10 / 16）；自动识别支持 0x / 0b / 0o 前缀，无前缀纯数字按十进制，仅含十六进制字符按十六进制。
+   - 输出 A 的二进制、八进制、十进制、十六进制四种表示。
+   - 位运算：AND、OR、XOR、NOT、左移、右移；全部按 64 位无符号整数（0 到 2^64-1）语义，NOT 返回 64 位补码，左移结果掩码回 64 位，移位位数 0-63。
+   - 参数：数字 B、HEX 大写开关。
+3. **文本处理**
+   - 命名风格转换：camelCase、PascalCase、snake_case、kebab-case、CONSTANT_CASE、全大写、全小写、Title Case、Sentence case；单词拆分识别下划线 / 短横线 / 空格与驼峰边界（含连续大写缩写）。
+   - 行处理：升序 / 降序排序、去重（保序）、去除行首尾空白、删除空行、行倒序、行编号。
+   - 字符与换行符：字符倒序（Unicode 码点安全）、CRLF → LF、LF → CRLF。
+   - 任意操作均附带统计：字符数（码点）、不含空白字符数、词数、行数、非空行数、UTF-8 字节数。
 4. **Mock 数据生成**
-   - 姓名、邮箱、手机号、时间、数字、UUID、JSON 模板
+   - 输入：JSON 对象模板（或只含一个模板元素的数组）；字符串值使用 @占位符。
+   - 占位符：@cname 中文姓名、@name 英文姓名、@email、@phone（大陆手机号格式）、@integer(min,max)、@float(min,max,精度)、@boolean、@uuid(v4)、@id / @index 自增计数、@pick(a|b|c)、@string(n)、@hex(n)、@date(start,end)、@datetime(start,end)、@timestamp(start,end)、@repeat(n, 占位符)。
+   - 非字符串标量原样保留；数组逐元素套用模板；@repeat 生成嵌套数组。
+   - 参数：数量（1-100）、种子；填写种子时使用 xmur3 + mulberry32 确定性随机流，同种子同模板输出完全一致；留空使用 Math.random。
+   - 不支持的占位符与非法参数报可读错误并列出支持列表。
+
+##### v1.4 第一批状态模型
+
+```text
+color: { toolId, input, params: { uppercase: boolean } }
+radix: { toolId, input, params: { base: "auto"|"2"|"8"|"10"|"16", operator: "none"|"and"|"or"|"xor"|"not"|"lshift"|"rshift", operand: string, uppercase: boolean } }
+text:  { toolId, input, params: { action: string } }
+mock:  { toolId, input, params: { count: number, seed: string } }
+```
+
+##### v1.4 第一批体验增强
+
+1. **本地收藏与最近使用**
+   - 顶栏“收藏工具”按钮收藏 / 取消收藏当前工具；收藏列表存入 localStorage（`devtools-favorites`，上限 12）。
+   - 最近使用在切换工具时更新（`devtools-recent`，上限 8，导航展示前 5 且去重收藏）。
+   - 导航顶部动态渲染“收藏”“最近使用”分组；两者均为空时不占位。
+   - 收藏与最近使用不参与 URL 分享状态（与主题一致）。
+2. **工具导航筛选**
+   - 导航顶部提供筛选输入框，按工具名称与 toolId 过滤；无匹配链接的分组标题同时隐藏。
+   - 快捷键 `/` 聚焦筛选框（在输入控件内时不劫持），Esc 清空并失焦。
+3. **PWA 离线支持**
+   - 提供 `manifest.webmanifest`（含 SVG 图标，purpose any maskable）与 Service Worker。
+   - Service Worker 预缓存全部静态资源，运行时对同源 GET 采用 cache-first、网络回填；离线时回退到缓存的 index.html。
+   - 缓存名带版本号（`devtools-v1-4-0`），新版本 SW 激活时清理旧缓存并 skipWaiting / clients.claim。
+   - 仅在 https 或 localhost 下注册 SW；file:// 打开时保持普通网站行为。
+   - 部署流水线打包 manifest、sw.js、icons/ 与既有资源。
+
+##### v1.4 第一批交互细节
+
+1. 四个工具均粘贴输入后自动处理，参数变化即时重算，沿用 220ms 防抖。
+2. 颜色结果使用色板 + 键值行 + 复制按钮展示；进制结果为文本输出；文本与 Mock 结果为文本输出。
+3. 全部工具提供复制输出、清空、示例，并参与 URL hash 状态恢复。
+
+##### v1.4 第一批边界与错误处理
+
+1. 输入上限沿用 1 MiB；进制输入额外限制 100 个数字字符。
+2. 颜色无法识别、进制无法解析、位运算缺少操作数、移位越界均报可读错误，不清空输入。
+3. Mock 模板非法 JSON、根模板形状不符、未知占位符、参数越界报可读错误。
+4. localStorage 不可用时收藏与最近使用静默降级，不影响工具使用。
+5. 所有处理保留在浏览器本地，无网络请求（Service Worker 缓存同样不涉及业务数据）。
 
 ### 7.1 JSON 工具
 

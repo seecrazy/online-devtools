@@ -111,6 +111,16 @@ body {
   gap: 8px;
 }
 
+.nav-filter {
+  min-height: 38px;
+  padding: 4px 10px;
+  font-size: 0.88rem;
+}
+
+#nav-dynamic:empty {
+  display: none;
+}
+
 .nav-group {
   margin: 12px 0 0;
   padding-left: 16px;
@@ -121,8 +131,13 @@ body {
   color: #607083;
 }
 
-.nav-group:first-child {
+.tool-nav > p.nav-group:first-of-type {
   margin-top: 0;
+}
+
+.tool-link[hidden],
+.nav-group[hidden] {
+  display: none;
 }
 
 .tool-link {
@@ -278,6 +293,18 @@ select {
 
 .controls select {
   width: auto;
+}
+
+.controls .line-input {
+  width: 160px;
+  flex: 1 1 140px;
+}
+
+.color-swatch {
+  height: 64px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(127, 145, 166, 0.4);
+  border-radius: 8px;
 }
 
 .button {
@@ -676,12 +703,23 @@ select {
   .tool-nav {
     position: static;
     display: flex;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    gap: 8px;
     padding-bottom: 4px;
   }
 
   .tool-link {
     flex: 0 0 auto;
+  }
+
+  .nav-filter {
+    flex: 1 1 100%;
+  }
+
+  .nav-group {
+    flex: 1 1 100%;
+    margin: 4px 0 0;
+    padding-left: 4px;
   }
 
   .tool-layout,
@@ -721,7 +759,8 @@ select {
   }
 
   .controls .button,
-  .controls select {
+  .controls select,
+  .controls .line-input {
     width: 100%;
   }
 }

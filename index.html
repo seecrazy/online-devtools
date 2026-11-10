@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Online DevTools 开发者工具箱</title>
-  <meta name="description" content="JSON、Base64、时间戳、正则表达式和 Cron 表达式在线工具，全部在浏览器本地处理。">
+  <meta name="description" content="JSON、Base64、时间戳、正则表达式、Cron、颜色、进制、Mock 数据等在线工具，全部在浏览器本地处理。">
+  <meta name="theme-color" content="#f4f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101418" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./assets/styles.css">
 </head>
 <body>
@@ -20,6 +24,7 @@
       </div>
     </div>
     <div class="header-actions">
+      <button id="favorite-button" class="button secondary" type="button" aria-pressed="false">收藏工具</button>
       <button id="share-button" class="button secondary" type="button" aria-describedby="share-status">分享当前状态</button>
       <button id="theme-button" class="button secondary" type="button">跟随系统</button>
     </div>
@@ -27,6 +32,8 @@
 
   <div class="app-shell">
     <nav class="tool-nav" aria-label="工具导航">
+      <input id="nav-filter" class="line-input nav-filter" type="search" placeholder="筛选工具 /" aria-label="筛选工具列表">
+      <div id="nav-dynamic"></div>
       <p class="nav-group">常用转换</p>
       <a class="tool-link is-active" href="#tool-json" data-tool-id="json">JSON</a>
       <a class="tool-link" href="#tool-base64" data-tool-id="base64">Base64</a>
@@ -34,6 +41,9 @@
       <a class="tool-link" href="#tool-timestamp" data-tool-id="timestamp">时间戳</a>
       <a class="tool-link" href="#tool-uuid" data-tool-id="uuid">UUID</a>
       <a class="tool-link" href="#tool-hash" data-tool-id="hash">Hash</a>
+      <a class="tool-link" href="#tool-color" data-tool-id="color">颜色转换</a>
+      <a class="tool-link" href="#tool-radix" data-tool-id="radix">进制位运算</a>
+      <a class="tool-link" href="#tool-text" data-tool-id="text">文本处理</a>
       <p class="nav-group">校验调试</p>
       <a class="tool-link" href="#tool-regex" data-tool-id="regex">正则</a>
       <a class="tool-link" href="#tool-cron" data-tool-id="cron">Cron</a>
@@ -49,6 +59,7 @@
       <a class="tool-link" href="#tool-markdown" data-tool-id="markdown">Markdown</a>
       <a class="tool-link" href="#tool-yaml" data-tool-id="yaml">YAML</a>
       <a class="tool-link" href="#tool-toml" data-tool-id="toml">TOML</a>
+      <a class="tool-link" href="#tool-mock" data-tool-id="mock">Mock 数据</a>
       <p class="nav-group">速查手册</p>
       <a class="tool-link" href="#tool-http" data-tool-id="http">HTTP 状态码</a>
       <a class="tool-link" href="#tool-mime" data-tool-id="mime">MIME Type</a>
@@ -745,6 +756,162 @@
             <h3>输出</h3>
             <pre id="toml-output" class="output" tabindex="0"></pre>
             <p id="toml-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-color" class="tool-panel" aria-labelledby="color-title">
+        <div class="tool-heading">
+          <h2 id="color-title">颜色转换器</h2>
+          <p>识别 HEX / RGB / HSL 颜色并互转，同时给出亮度与文字对比度参考。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="color-input">颜色值</label>
+            <input id="color-input" class="line-input" spellcheck="false" placeholder="#2563EB / rgb(37, 99, 235) / hsl(221, 83%, 53%)" aria-describedby="color-status">
+            <div class="controls">
+              <label><input id="color-uppercase" type="checkbox"> HEX 大写</label>
+              <button class="button secondary" type="button" data-copy="#color-input">复制输入</button>
+              <button class="button secondary" type="button" data-clear="color">清空</button>
+              <button class="button secondary" type="button" data-sample="color">示例</button>
+            </div>
+            <p class="engine-note">支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA、rgb() / rgba()、hsl() / hsla()；暂不支持命名颜色与百分比 RGB。对比度按 WCAG 相对亮度公式计算。</p>
+          </div>
+          <div class="panel">
+            <h3>转换结果</h3>
+            <div id="color-swatch" class="color-swatch" aria-hidden="true"></div>
+            <dl id="color-output" class="result-list"></dl>
+            <p id="color-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-radix" class="tool-panel" aria-labelledby="radix-title">
+        <div class="tool-heading">
+          <h2 id="radix-title">进制转换与位运算</h2>
+          <p>在二进制、八进制、十进制、十六进制之间转换，并支持 64 位无符号位运算。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="radix-input">数字 A</label>
+            <input id="radix-input" class="line-input" spellcheck="false" placeholder="255 / 0xff / 0b1010 / 0o377" aria-describedby="radix-status">
+            <div class="controls">
+              <label for="radix-base">进制</label>
+              <select id="radix-base">
+                <option value="auto">自动识别</option>
+                <option value="2">二进制</option>
+                <option value="8">八进制</option>
+                <option value="10">十进制</option>
+                <option value="16">十六进制</option>
+              </select>
+              <label for="radix-operator">运算</label>
+              <select id="radix-operator">
+                <option value="none">仅转换</option>
+                <option value="and">AND 与</option>
+                <option value="or">OR 或</option>
+                <option value="xor">XOR 异或</option>
+                <option value="not">NOT 非</option>
+                <option value="lshift">左移</option>
+                <option value="rshift">右移</option>
+              </select>
+              <label class="field-label" for="radix-operand">数字 B（移位时为位数）</label>
+              <input id="radix-operand" class="line-input" spellcheck="false" placeholder="0x0f / 4">
+              <label><input id="radix-uppercase" type="checkbox"> 十六进制大写</label>
+              <button class="button secondary" type="button" data-copy="#radix-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="radix">清空</button>
+              <button class="button secondary" type="button" data-sample="radix">示例</button>
+            </div>
+            <p class="engine-note">所有数值按 64 位无符号整数（0 到 2^64-1）处理，超出范围会报错。自动识别支持 0x / 0b / 0o 前缀；无前缀的纯数字按十进制，仅含十六进制字符时按十六进制。</p>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="radix-output" class="output" tabindex="0"></pre>
+            <p id="radix-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-text" class="tool-panel" aria-labelledby="text-title">
+        <div class="tool-heading">
+          <h2 id="text-title">文本处理</h2>
+          <p>命名风格转换、行排序去重、换行符转换与文本统计。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="text-input">输入文本</label>
+            <textarea id="text-input" class="code-input" spellcheck="false" aria-describedby="text-status"></textarea>
+            <div class="controls">
+              <label for="text-action">操作</label>
+              <select id="text-action">
+                <optgroup label="命名风格">
+                  <option value="camelCase">camelCase 小驼峰</option>
+                  <option value="pascalCase">PascalCase 大驼峰</option>
+                  <option value="snakeCase">snake_case 下划线</option>
+                  <option value="kebabCase">kebab-case 短横线</option>
+                  <option value="constantCase">CONSTANT_CASE 常量</option>
+                  <option value="upper">全大写</option>
+                  <option value="lower">全小写</option>
+                  <option value="titleCase">Title Case 标题</option>
+                  <option value="sentenceCase">Sentence case 句子</option>
+                </optgroup>
+                <optgroup label="行处理">
+                  <option value="sortAsc">行排序（升序）</option>
+                  <option value="sortDesc">行排序（降序）</option>
+                  <option value="dedupeLines">行去重</option>
+                  <option value="trimLines">去除行首尾空白</option>
+                  <option value="removeEmptyLines">删除空行</option>
+                  <option value="reverseLines">行倒序</option>
+                  <option value="numberLines">行编号</option>
+                </optgroup>
+                <optgroup label="字符与换行符">
+                  <option value="reverseText">字符倒序</option>
+                  <option value="toLF">CRLF → LF</option>
+                  <option value="toCRLF">LF → CRLF</option>
+                </optgroup>
+              </select>
+              <button class="button secondary" type="button" data-copy="#text-input">复制输入</button>
+              <button class="button secondary" type="button" data-copy="#text-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="text">清空</button>
+              <button class="button secondary" type="button" data-sample="text">示例</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="text-output" class="output" tabindex="0"></pre>
+            <p id="text-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tool-mock" class="tool-panel" aria-labelledby="mock-title">
+        <div class="tool-heading">
+          <h2 id="mock-title">Mock 数据生成</h2>
+          <p>以 JSON 对象为模板批量生成模拟数据；填写种子可复现同一批结果。</p>
+        </div>
+        <div class="tool-layout">
+          <div class="panel">
+            <label class="field-label" for="mock-input">JSON 模板</label>
+            <textarea id="mock-input" class="code-input" spellcheck="false" aria-describedby="mock-status" placeholder='{ "id": "@id", "name": "@cname" }'></textarea>
+            <div class="controls">
+              <label for="mock-count">数量</label>
+              <select id="mock-count">
+                <option value="1">1 条</option>
+                <option value="5" selected>5 条</option>
+                <option value="10">10 条</option>
+                <option value="50">50 条</option>
+              </select>
+              <label class="field-label" for="mock-seed">种子</label>
+              <input id="mock-seed" class="line-input" spellcheck="false" placeholder="留空随机">
+              <button class="button secondary" type="button" data-copy="#mock-output">复制输出</button>
+              <button class="button secondary" type="button" data-clear="mock">清空</button>
+              <button class="button secondary" type="button" data-sample="mock">示例</button>
+            </div>
+            <p class="engine-note">占位符：@cname 中文姓名、@name 英文姓名、@email、@phone、@integer(min,max)、@float(min,max,精度)、@boolean、@uuid、@id / @index 自增、@pick(a|b|c)、@string(n)、@hex(n)、@date、@datetime、@timestamp、@repeat(n, 占位符)。生成全部在本地完成。</p>
+          </div>
+          <div class="panel">
+            <h3>输出</h3>
+            <pre id="mock-output" class="output" tabindex="0"></pre>
+            <p id="mock-status" class="status" role="status" aria-live="polite"></p>
           </div>
         </div>
       </section>

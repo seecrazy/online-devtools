@@ -22,6 +22,10 @@ import {
   processToml,
   processUrl,
   processUuid,
+  processColor,
+  processRadix,
+  processText,
+  processMock,
   searchHttpStatusCodes,
   searchMimeTypes,
   stateFromHash,
@@ -30,10 +34,14 @@ import {
 
 const dom = {
   navLinks: document.querySelectorAll(".tool-link"),
+  nav: document.querySelector(".tool-nav"),
+  navFilter: document.querySelector("#nav-filter"),
+  navDynamic: document.querySelector("#nav-dynamic"),
   panels: document.querySelectorAll(".tool-panel"),
   shareButton: document.querySelector("#share-button"),
   shareStatus: document.querySelector("#share-status"),
   themeButton: document.querySelector("#theme-button"),
+  favoriteButton: document.querySelector("#favorite-button"),
   json: {
     input: document.querySelector("#json-input"),
     mode: document.querySelector("#json-mode"),
@@ -178,6 +186,35 @@ const dom = {
     output: document.querySelector("#toml-output"),
     status: document.querySelector("#toml-status"),
   },
+  color: {
+    input: document.querySelector("#color-input"),
+    uppercase: document.querySelector("#color-uppercase"),
+    swatch: document.querySelector("#color-swatch"),
+    output: document.querySelector("#color-output"),
+    status: document.querySelector("#color-status"),
+  },
+  radix: {
+    input: document.querySelector("#radix-input"),
+    base: document.querySelector("#radix-base"),
+    operator: document.querySelector("#radix-operator"),
+    operand: document.querySelector("#radix-operand"),
+    uppercase: document.querySelector("#radix-uppercase"),
+    output: document.querySelector("#radix-output"),
+    status: document.querySelector("#radix-status"),
+  },
+  text: {
+    input: document.querySelector("#text-input"),
+    action: document.querySelector("#text-action"),
+    output: document.querySelector("#text-output"),
+    status: document.querySelector("#text-status"),
+  },
+  mock: {
+    input: document.querySelector("#mock-input"),
+    count: document.querySelector("#mock-count"),
+    seed: document.querySelector("#mock-seed"),
+    output: document.querySelector("#mock-output"),
+    status: document.querySelector("#mock-status"),
+  },
 };
 
 const states = Object.fromEntries(TOOL_IDS.map((toolId) => [toolId, createDefaultState(toolId)]));
@@ -259,6 +296,22 @@ const samples = {
   toml: {
     input: "title = \"demo\"\ncount = 3\n\n[owner]\nname = \"dev\"\n\n[[items]]\nid = 1\n",
     params: { mode: "toJson" },
+  },
+  color: {
+    input: "#2563EB",
+    params: { uppercase: false },
+  },
+  radix: {
+    input: "0xff",
+    params: { base: "auto", operator: "and", operand: "0x0f", uppercase: false },
+  },
+  text: {
+    input: "user_name\ncreatedAt\nHTTPResponse\norder-id",
+    params: { action: "camelCase" },
+  },
+  mock: {
+    input: '{\n  "id": "@id",\n  "name": "@cname",\n  "email": "@email",\n  "phone": "@phone",\n  "age": "@integer(18, 60)",\n  "score": "@float(0, 100, 1)",\n  "active": "@boolean",\n  "tags": "@repeat(3, @pick(线上|离线|VIP|新用户))",\n  "created": "@datetime(2024-01-01, 2026-12-31)"\n}',
+    params: { count: 5, seed: "" },
   },
 };
 
@@ -435,6 +488,22 @@ function readStateFromDom(toolId = activeTool) {
   } else if (toolId === "toml") {
     state.input = dom.toml.input.value;
     state.params.mode = dom.toml.mode.value;
+  } else if (toolId === "color") {
+    state.input = dom.color.input.value;
+    state.params.uppercase = dom.color.uppercase.checked;
+  } else if (toolId === "radix") {
+    state.input = dom.radix.input.value;
+    state.params.base = dom.radix.base.value;
+    state.params.operator = dom.radix.operator.value;
+    state.params.operand = dom.radix.operand.value;
+    state.params.uppercase = dom.radix.uppercase.checked;
+  } else if (toolId === "text") {
+    state.input = dom.text.input.value;
+    state.params.action = dom.text.action.value;
+  } else if (toolId === "mock") {
+    state.input = dom.mock.input.value;
+    state.params.count = Number(dom.mock.count.value);
+    state.params.seed = dom.mock.seed.value;
   }
   return state;
 }
@@ -513,7 +582,102 @@ function writeStateToDom(state) {
   } else if (state.toolId === "toml") {
     dom.toml.input.value = state.input;
     dom.toml.mode.value = state.params.mode;
+  } else if (state.toolId === "color") {
+    dom.color.input.value = state.input;
+    dom.color.uppercase.checked = state.params.uppercase === true;
+  } else if (state.toolId === "radix") {
+    dom.radix.input.value = state.input;
+    dom.radix.base.value = state.params.base;
+    dom.radix.operator.value = state.params.operator;
+    dom.radix.operand.value = state.params.operand || "";
+    dom.radix.uppercase.checked = state.params.uppercase === true;
+  } else if (state.toolId === "text") {
+    dom.text.input.value = state.input;
+    dom.text.action.value = state.params.action;
+  } else if (state.toolId === "mock") {
+    dom.mock.input.value = state.input;
+    dom.mock.count.value = String(state.params.count);
+    dom.mock.seed.value = state.params.seed || "";
   }
+}
+
+const NAV_TOOL_LABELS = new Map();
+
+function readToolIdList(key) {
+  try {
+    const parsed = JSON.parse(storageGet(key) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((id) => TOOL_IDS.includes(id)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeToolIdList(key, list) {
+  storageSet(key, JSON.stringify(list));
+}
+
+function getFavorites() {
+  return readToolIdList("devtools-favorites");
+}
+
+function getRecent() {
+  return readToolIdList("devtools-recent");
+}
+
+function pushRecent(toolId) {
+  const list = getRecent().filter((id) => id !== toolId);
+  list.unshift(toolId);
+  writeToolIdList("devtools-recent", list.slice(0, 8));
+}
+
+function updateFavoriteButton() {
+  const isFavorite = getFavorites().includes(activeTool);
+  dom.favoriteButton.textContent = isFavorite ? "取消收藏" : "收藏工具";
+  dom.favoriteButton.setAttribute("aria-pressed", String(isFavorite));
+}
+
+function renderDynamicNav() {
+  dom.navDynamic.innerHTML = "";
+  const favorites = getFavorites();
+  const recent = getRecent().filter((id) => !favorites.includes(id)).slice(0, 5);
+  const groups = [];
+  if (favorites.length) groups.push(["收藏", favorites]);
+  if (recent.length) groups.push(["最近使用", recent]);
+
+  for (const [label, ids] of groups) {
+    const heading = document.createElement("p");
+    heading.className = "nav-group";
+    heading.textContent = label;
+    dom.navDynamic.append(heading);
+    for (const id of ids) {
+      const link = document.createElement("a");
+      link.className = "tool-link";
+      link.href = `#tool-${id}`;
+      link.dataset.toolId = id;
+      link.textContent = NAV_TOOL_LABELS.get(id) || id;
+      if (id === activeTool) link.classList.add("is-active");
+      dom.navDynamic.append(link);
+    }
+  }
+  applyNavFilter();
+}
+
+function applyNavFilter() {
+  const query = dom.navFilter.value.trim().toLowerCase();
+  dom.nav.querySelectorAll(".tool-link").forEach((link) => {
+    const label = (NAV_TOOL_LABELS.get(link.dataset.toolId) || link.textContent).toLowerCase();
+    const id = (link.dataset.toolId || "").toLowerCase();
+    link.hidden = query ? !(label.includes(query) || id.includes(query)) : false;
+  });
+  dom.nav.querySelectorAll(".nav-group").forEach((group) => {
+    let sibling = group.nextElementSibling;
+    let anyVisible = false;
+    while (sibling && !sibling.classList.contains("nav-group")) {
+      if (sibling.tagName === "A" && !sibling.hidden) anyVisible = true;
+      sibling = sibling.nextElementSibling;
+    }
+    group.hidden = !anyVisible;
+  });
 }
 
 function activateTool(toolId, { fromHash = false } = {}) {
@@ -523,6 +687,9 @@ function activateTool(toolId, { fromHash = false } = {}) {
   dom.navLinks.forEach((link) => link.classList.toggle("is-active", link.dataset.toolId === toolId));
   dom.panels.forEach((panel) => panel.classList.toggle("is-active", panel.id === `tool-${toolId}`));
   storageSet("devtools-last-tool", toolId);
+  pushRecent(toolId);
+  renderDynamicNav();
+  updateFavoriteButton();
 
   if (!fromHash) writeHash();
   scheduleProcess(0);
@@ -942,6 +1109,89 @@ function renderToml(result) {
   setStatus(dom.toml.status, result.mode === "fromJson" ? "TOML 生成成功。" : "JSON 生成成功。", "success");
 }
 
+function renderColor(result) {
+  dom.color.swatch.style.backgroundColor = "";
+  dom.color.output.innerHTML = "";
+  if (result.status === "idle") {
+    setStatus(dom.color.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setStatus(dom.color.status, result.error.message, "error");
+    return;
+  }
+
+  dom.color.swatch.style.backgroundColor = result.rows[0].value;
+  for (const row of result.rows) {
+    const wrapper = document.createElement("div");
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    const span = document.createElement("span");
+    dt.textContent = row.label;
+    span.textContent = row.value;
+    dd.append(span, createButton("复制", { copyText: row.value }));
+    wrapper.append(dt, dd);
+    dom.color.output.append(wrapper);
+  }
+  setStatus(
+    dom.color.status,
+    `相对亮度 ${result.luminance}；与白底对比度 ${result.contrastWhite}:1，与黑底 ${result.contrastBlack}:1，建议文字颜色：${result.suggestedText}。`,
+    "success",
+  );
+}
+
+const RADIX_BASE_LABELS = { 2: "二进制", 8: "八进制", 10: "十进制", 16: "十六进制" };
+
+function renderRadix(result) {
+  if (result.status === "idle") {
+    setOutput(dom.radix.output, "");
+    setStatus(dom.radix.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.radix.output, "");
+    setStatus(dom.radix.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.radix.output, result.output);
+  const baseLabel = RADIX_BASE_LABELS[result.base] || result.base;
+  setStatus(dom.radix.status, result.operator === "none" ? `按${baseLabel}解析成功。` : `按${baseLabel}解析成功，${result.operation} = ${result.resultRows[2].value}。`, "success");
+}
+
+function renderText(result) {
+  if (result.status === "idle") {
+    setOutput(dom.text.output, "");
+    setStatus(dom.text.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.text.output, "");
+    setStatus(dom.text.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.text.output, result.output);
+  setStatus(
+    dom.text.status,
+    `处理完成：${result.stats.lines} 行（非空 ${result.stats.nonEmptyLines}）/ ${result.stats.words} 词 / ${result.stats.chars} 字符 / ${result.stats.bytes} 字节。`,
+    "success",
+  );
+}
+
+function renderMock(result) {
+  if (result.status === "idle") {
+    setOutput(dom.mock.output, "");
+    setStatus(dom.mock.status, result.message);
+    return;
+  }
+  if (result.status === "error") {
+    setOutput(dom.mock.output, "");
+    setStatus(dom.mock.status, result.error.message, "error");
+    return;
+  }
+  setOutput(dom.mock.output, result.output);
+  setStatus(dom.mock.status, `已生成 ${result.generated} 条记录${result.seed ? `（种子 ${result.seed}，可复现）` : ""}。`, "success");
+}
+
 let regexWorker = null;
 let regexRunId = 0;
 let regexTimeoutId = null;
@@ -1110,6 +1360,14 @@ async function processToolNow() {
     renderYaml(processYaml(state.input, state.params));
   } else if (state.toolId === "toml") {
     renderToml(processToml(state.input, state.params));
+  } else if (state.toolId === "color") {
+    renderColor(processColor(state.input, state.params));
+  } else if (state.toolId === "radix") {
+    renderRadix(processRadix(state.input, state.params));
+  } else if (state.toolId === "text") {
+    renderText(processText(state.input, state.params));
+  } else if (state.toolId === "mock") {
+    renderMock(processMock(state.input, state.params));
   }
 }
 
@@ -1269,6 +1527,10 @@ function handleDocumentInput(event) {
     markdown: ["markdown-input"],
     yaml: ["yaml-input", "yaml-mode"],
     toml: ["toml-input", "toml-mode"],
+    color: ["color-input", "color-uppercase"],
+    radix: ["radix-input", "radix-base", "radix-operator", "radix-operand", "radix-uppercase"],
+    text: ["text-input", "text-action"],
+    mock: ["mock-input", "mock-count", "mock-seed"],
   }).find(([, ids]) => ids.includes(control.id))?.[0];
 
   if (!toolId) return;
@@ -1282,6 +1544,9 @@ populateTimezones();
 renderExampleList("regex");
 renderExampleList("cron");
 applyTheme(readTheme());
+for (const link of document.querySelectorAll(".tool-link")) {
+  NAV_TOOL_LABELS.set(link.dataset.toolId, link.textContent);
+}
 readRouteFromHash();
 writeStateToDom(states[activeTool]);
 processToolNow();
@@ -1295,6 +1560,34 @@ window.addEventListener("hashchange", () => {
   if (suppressHashChange) return;
   readRouteFromHash();
   processToolNow();
+});
+
+dom.navFilter.addEventListener("input", applyNavFilter);
+dom.navFilter.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    dom.navFilter.value = "";
+    applyNavFilter();
+    dom.navFilter.blur();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target;
+  if (target?.closest?.("input, textarea, select") || target?.isContentEditable) return;
+  event.preventDefault();
+  dom.navFilter.focus();
+  dom.navFilter.select();
+});
+
+dom.favoriteButton.addEventListener("click", () => {
+  const favorites = getFavorites();
+  const index = favorites.indexOf(activeTool);
+  if (index >= 0) favorites.splice(index, 1);
+  else favorites.push(activeTool);
+  writeToolIdList("devtools-favorites", favorites.slice(0, 12));
+  renderDynamicNav();
+  updateFavoriteButton();
 });
 
 dom.themeButton.addEventListener("click", () => {
@@ -1317,3 +1610,9 @@ dom.shareButton.addEventListener("click", async () => {
     showShareStatus(error.message, true);
   }
 });
+
+if ("serviceWorker" in navigator && (window.location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(window.location.hostname))) {
+  navigator.serviceWorker.register("./sw.js").catch(() => {
+    // Service Worker 注册失败时保持普通网站可用。
+  });
+}
